@@ -106,6 +106,8 @@ private:
 
 
 class cnc_machine {
+    static constexpr const double MIN_SAFE_HEIGHT = 1;
+
 public:
     explicit cnc_machine(std::iostream& s): s_(&s)
     {
@@ -118,13 +120,18 @@ public:
         }
         
         talk("?");
-        read_wco();
+        talk("G21");
+        talk("G90");
+        set_zero();
     }
     
     void reset() { talk("\x18"); }
     
     point position()
-    {        
+    {
+        if (position_.defined())
+            return position_;
+
         std::string status;
         while (status.empty()) {
             auto st = talk("?");
@@ -132,20 +139,18 @@ public:
                 status = st[0];            
         }
         
-        point wpos;
-        bool found = false;
+        point mpos;
         for (const std::string& field: split<std::string>(status, "|")) {
-            if (field.substr(0, 5) == "MPos:") {
-                return point(field.substr(5));
-            } else if (field.substr(0, 5) == "WPos:") {
-                wpos = point(field.substr(5));
-                found = true;
+            if (field.substr(0, 5) == "WPos:") {
+                return (position_ = point(field.substr(5)));
+            } else if (field.substr(0, 5) == "MPos:") {
+                mpos = point(field.substr(5));
             } else if (field.substr(0, 4) == "WCO:") {
                 wco_ = vector(field.substr(4));
             }
         }
-        if (found)
-            return wpos + wco_;
+        if (mpos.defined())
+            return (position_ = mpos - wco_);
         else
             throw grbl_error::protocol_violation();
     }
@@ -153,7 +158,35 @@ public:
     void redefine_position(point newpos)
     {
         talk("G10 P0 L20 " + newpos.grbl());
-        read_wco();
+        wco_ = vector();
+        position_ = newpos;
+    }
+    
+    void set_zero() { redefine_position({ 0, 0, 0 }); }
+        
+    void move_xy(point p)
+    {
+        point c = position();
+        if (c.z < MIN_SAFE_HEIGHT) {
+            move_z(MIN_SAFE_HEIGHT);
+            c.z = MIN_SAFE_HEIGHT;
+        }
+
+        talk("G0 " + point(p.x, p.y, c.z).grbl());
+        position_ = point(p.x, p.y, c.z);
+    }
+    
+    void move_z(double z)
+    {
+        talk("G0 Z" + std::to_string(z));
+        position_.z = z;
+    }
+    
+    double probe()
+    {
+        position_ = point();
+        talk("G38.2 F15 Z-50");
+        return position().z;
     }
     
 private /*methods*/:
@@ -191,21 +224,25 @@ public:
         throw grbl_error::protocol_violation();
     }
     
-    void read_wco()
+    vector wco()
     {
+        if (wco_.defined())
+            return wco_;
+        
         for (const std::string& line: talk("$#")) {
             auto fields = split<std::string>(line, ":");
             if (fields.size() >= 2 && fields[0] == "G54") {
                 wco_ = vector(fields[1]);
-                break;
+                return wco_;
             }
         }
     }
-    
+        
 private /*fields*/:
     std::iostream* s_;
     
     vector wco_;
+    point position_;
 };
 
 
@@ -236,6 +273,14 @@ int main()
                 cnc.reset();
             } else if (cmd == "pos") {
                 std::cout << cnc.position() << std::endl;
+            } else if (cmd == "setzero") {
+                cnc.set_zero();
+            } else if (cmd.substr(0, 3) == "xy ") {
+                cnc.move_xy(point(cmd.substr(3)));
+            } else if (cmd.substr(0, 2) == "z ") {
+                cnc.move_z(lexical_cast<double>(cmd.substr(2)));
+            } else if (cmd == "probe") {
+                std::cout << cnc.probe() << std::endl;
             } else if (!cmd.empty() && cmd[0] == '.') {
                 cnc.talk(cmd.substr(1));
             } else {
