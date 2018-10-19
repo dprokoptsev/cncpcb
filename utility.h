@@ -3,6 +3,8 @@
 #include <string>
 #include <stdexcept>
 #include <typeinfo>
+#include <cerrno>
+#include <cstring>
 
 
 template<class To, class From>
@@ -30,5 +32,16 @@ std::vector<T> split(const std::string& s, const std::string& sep)
         else
             pos = p + 1;
     }
+    return ret;
+}
+
+
+template<class F, class... Args>
+decltype(std::declval<F>()(std::declval<Args>()...))
+check_syscall(const std::string& msg, F f, Args... args)
+{
+    auto ret = f(args...);
+    if (ret == -1)
+        throw std::runtime_error("cannot " + msg + ": " + strerror(errno));
     return ret;
 }

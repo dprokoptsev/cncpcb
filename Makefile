@@ -1,6 +1,6 @@
 
 BIN = cnc
-SRCS = errors.cpp cnc.cpp
+SRCS = errors.cpp cnc.cpp main.cpp
 
 LIBS = readline
 
