@@ -7,17 +7,30 @@
 #include <cstring>
 
 
-template<class To, class From>
-To lexical_cast(const From& f)
+inline bool starts_with(const std::string& s, const std::string& prefix)
 {
-    std::stringstream s;
-    To t;
-    if (s << f && s >> t)
-        return t;
-    else
-        throw std::bad_cast();
+    return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
 }
 
+template<class To, class From>
+struct lexical_cast_impl_ {
+    static To cast(const From& f) {
+        std::stringstream s;
+        To t;
+        if (s << f && s >> t)
+            return t;
+        else
+            throw std::bad_cast();
+    };
+};
+
+template<class T>
+struct lexical_cast_impl_<T, T> {
+    static T cast(const T& t) { return t; }
+};
+
+template<class To, class From>
+To lexical_cast(const From& f) { return lexical_cast_impl_<To, From>::cast(f); }
 
 template<class T>
 std::vector<T> split(const std::string& s, const std::string& sep)

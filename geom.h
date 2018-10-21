@@ -52,9 +52,10 @@ public:
     
     friend std::ostream& operator << (std::ostream& s, const pt_base& p)
     {
-        return s << std::setprecision(3) << p.x << ','
+        return s << '('
+                 << std::setprecision(3) << p.x << ','
                  << std::setprecision(3) << p.y << ','
-                 << std::setprecision(3) << p.z;
+                 << std::setprecision(3) << p.z << ')';
     }
     
     std::string grbl() const
@@ -73,9 +74,9 @@ public:
     using pt_base::pt_base;
     
     struct axis {
-        static vector x(double x) { return { x, 0, 0 }; }
-        static vector y(double y) { return { 0, y, 0 }; }
-        static vector z(double z) { return { 0, 0, z }; }
+        static vector x(double x = 1) { return { x, 0, 0 }; }
+        static vector y(double y = 1) { return { 0, y, 0 }; }
+        static vector z(double z = 1) { return { 0, 0, z }; }
     };
     
     vector operator + (const vector& v) const { return { x + v.x, y + v.y, z + v.z }; }
@@ -89,7 +90,20 @@ public:
     vector& operator *= (double k) { return (*this = *this * k); }
     vector& operator /= (double k) { return (*this = *this / k); }
     
+    double operator * (const vector& v) const { return x*v.x + y*v.y + z*v.z; }
+    double length() const { return sqrt(x*x + y*y + z*z); }
+    vector unit() const { return *this / length(); }
+    
     vector rotate(double angle) const { return { x*cos(angle) - y*sin(angle), y*cos(angle)+x*sin(angle), z }; }
+    vector rotate(vector angle) const { return { x*angle.x - y*angle.y, y*angle.x + x*angle.y, z }; }
+    double angle_to(vector v) const { return atan2(v.unit() * rotate(M_PI/2).unit(), v.unit() * unit()); }
+    
+    vector project(const vector& axis) const { return axis * (*this * axis.unit()); }
+    
+    vector project_xy() const { return { x, y, 0 }; }
+    vector mirror_x() const { return { -x, y, z }; }
+    
+    
 };
 
 
@@ -103,5 +117,30 @@ public:
     friend point operator + (const vector& v, const point& pt) { return { v.x + pt.x, v.y + pt.y, v.z + pt.z }; }
     vector operator - (const point& p) const { return { x - p.x, y - p.y, z - p.z }; }
     
+    double distance_to(const point& p) const { return (p - *this).length(); }
+    
     point rotate(const point& center, double angle) const { return center + (*this - center).rotate(angle); }
+};
+
+
+class orientation {
+public:
+    orientation(): gcode_zero_(0, 0, 0), cnc_zero_(0, 0, 0), rotation_(1, 0, 0) {}
+
+    orientation(point gcode_zero, point cnc_zero, vector rotation):
+        gcode_zero_(gcode_zero), cnc_zero_(cnc_zero), rotation_(rotation.project_xy().unit())
+    {}
+    
+    point operator()(const point& pt) const { return (pt - gcode_zero_).rotate(rotation_) + cnc_zero_; }
+    
+    friend std::ostream& operator << (std::ostream& s, const orientation& o)
+    {
+        return s << "gz=" << o.gcode_zero_ << "; cncz=" << o.cnc_zero_
+                 << "; angle=" << std::fixed << vector::axis::x().angle_to(o.rotation_)*180/M_PI;
+    }
+    
+private:
+    point gcode_zero_;
+    point cnc_zero_;
+    vector rotation_;
 };
