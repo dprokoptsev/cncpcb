@@ -4,6 +4,7 @@
 #include "keyboard.h"
 #include "gcode.h"
 #include "workflow.h"
+#include "settings.h"
 #include <string>
 #include <fstream>
 #include <algorithm>
@@ -12,7 +13,6 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
-bool g_dump_wire = false;
 
 bool readline(const std::string& prompt, std::string& dest)
 {
@@ -40,9 +40,11 @@ int main(int argc, char** argv)
     try {
         int opt;
         
-        while ((opt = getopt(argc, argv, "d")) != -1) {
+        while ((opt = getopt(argc, argv, "dZ")) != -1) {
             if (opt == 'd') {
-                g_dump_wire = true;
+                settings::g_params.dump_wire = true;
+            } else if (opt == 'Z') {
+                settings::g_params.require_z_level_at_tool_change = false;
             } else {
                 usage();
             }
@@ -78,14 +80,23 @@ int main(int argc, char** argv)
                 } else if (!cmd.empty() && cmd[0] == '.') {
                     cnc.talk(cmd.substr(1));
                     
-                } else if (cmd == "border" && !args.empty()) {
-                    w->load_border(args[0]);
+                } else if (cmd == "load" && args.size() >= 2) {
+                    if (args[0] == "border")
+                        w->load_border(args[1]);
+                    else if (args[0] == "drill")
+                        w->load_drill(args[1]);
+                    else
+                        std::cerr << "Unknown entity '" << args[0] << "'" << std::endl;
                 } else if (cmd == "orient") {
                     w->set_orientation();
+                    std::cerr << "Orientation: " << w->orientation() << std::endl;
                 } else if (cmd == "drillrefs") {
                     w->drill_reference_holes();
                 } else if (cmd == "userefs") {
                     w->use_reference_holes();
+                    std::cerr << "Orientation: " << w->orientation() << std::endl;
+                } else if (cmd == "drill") {
+                    w->drill();
                     
                 } else if (cmd == "status") {
                     
@@ -100,7 +111,7 @@ int main(int argc, char** argv)
                     
                 } else if (cmd == "chtool") {
                     
-                    interactive::change_tool(cnc, args.empty() ? "change tool" : args[0]);
+                    interactive::change_tool(cnc, args.empty() ? std::string() : args[0]);
                     
                 } else {
                     std::cout << "unknown command" << std::endl;

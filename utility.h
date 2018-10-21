@@ -5,7 +5,7 @@
 #include <typeinfo>
 #include <cerrno>
 #include <cstring>
-
+#include <sstream>
 
 inline bool starts_with(const std::string& s, const std::string& prefix)
 {
@@ -21,12 +21,16 @@ struct lexical_cast_impl_ {
             return t;
         else
             throw std::bad_cast();
-    };
+    }
 };
 
 template<class T>
-struct lexical_cast_impl_<T, T> {
-    static T cast(const T& t) { return t; }
+struct lexical_cast_impl_<std::string, T> {
+    static std::string cast(const T& t) {
+        std::stringstream s;
+        s << t;
+        return s.str();
+    }
 };
 
 template<class To, class From>

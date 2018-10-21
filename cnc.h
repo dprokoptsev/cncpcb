@@ -32,17 +32,14 @@ public:
     void set_spindle_on();
     void set_spindle_off();
     bool is_spindle_on();
-    
     void set_feed_rate(double feed) { talk("F" + std::to_string(feed)); }
-    
     void dwell(double seconds);
     
     void send_gcmd(const gcmd& cmd);
+
+    std::vector<std::string> talk(const std::string& cmd);
     
 private /*methods*/:
-    
-public:
-    std::vector<std::string> talk(const std::string& cmd);
     void get_status();
     vector wco();
         

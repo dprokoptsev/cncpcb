@@ -39,6 +39,8 @@ private:
 
 namespace interactive {
 
+void clear_line();
+
 point position(
     cnc_machine& cnc, const std::string& prompt,
     cnc_machine::move_mode mode = cnc_machine::move_mode::safe
@@ -72,6 +74,26 @@ private:
     
     cnc_machine& cnc() { return *cnc_; }
     std::string point_desc(size_t idx) const;
+};
+
+
+class progress_bar {
+public:
+    progress_bar(const std::string& prompt, size_t max):
+        prompt_(prompt), max_(max), cur_(0)
+    { update(); }
+    
+    ~progress_bar() { clear_line(); }
+    
+    void set(size_t value) { cur_ = value; update(); }
+    void increment() { ++cur_; update(); }
+    
+private:
+    std::string prompt_;
+    size_t max_;
+    size_t cur_;
+    
+    void update();
 };
 
 } // namespace interactive

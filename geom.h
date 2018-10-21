@@ -61,7 +61,8 @@ public:
     std::string grbl() const
     {
         std::ostringstream s;
-        s << "X" << std::setprecision(3) << x
+        s << std::fixed
+          << "X" << std::setprecision(3) << x
           << " Y" << std::setprecision(3) << y
           << " Z" << std::setprecision(3) << z;
         return s.str();
@@ -103,8 +104,6 @@ public:
     
     vector project_xy() const { return { x, y, 0 }; }
     vector mirror_x() const { return { -x, y, z }; }
-    
-    
 };
 
 
@@ -129,13 +128,13 @@ public:
 
 class orientation {
 public:
-    orientation(): gcode_zero_(0, 0, 0), cnc_zero_(0, 0, 0), rotation_(1, 0, 0) {}
-
+    orientation() {}
     orientation(point gcode_zero, point cnc_zero, vector rotation):
         gcode_zero_(gcode_zero), cnc_zero_(cnc_zero), rotation_(rotation.project_xy().unit())
     {}
-    
     static orientation reconstruct(const std::vector<point>& orig, const std::vector<point>& xformed);
+    
+    bool defined() const { return gcode_zero_.defined() && cnc_zero_.defined() && rotation_.defined(); }
     
     point operator()(const point& pt) const { return (pt - gcode_zero_).rotate(rotation_) + cnc_zero_; }
     

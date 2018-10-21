@@ -2,14 +2,15 @@
 #include "utility.h"
 #include "geom.h"
 #include "cnc.h"
+#include "keyboard.h"
+#include "gcode.h"
+#include "settings.h"
 
 #include <iostream>
 #include <stdexcept>
 #include <vector>
 #include <utility>
 
-
-extern bool g_dump_wire;
 
 cnc_machine::cnc_machine(std::iostream& s): s_(&s)
 {
@@ -55,7 +56,7 @@ void cnc_machine::get_status()
             wco_ = vector(field.substr(4));
         } else if (field.substr(0, 3) == "FS:") {
             auto fs = split<double>(field.substr(3), ",");
-            spindle_on_ = (fs.size() >= 2 && fs[0] >= 1);
+            spindle_on_ = (fs.size() >= 2 && fs[1] >= 1);
         }
     }
     
@@ -159,10 +160,11 @@ void cnc_machine::set_spindle_off()
 
 void cnc_machine::dwell(double seconds) { talk("G4 P" + std::to_string(seconds)); }
 
+void cnc_machine::send_gcmd(const gcmd& cmd) { talk(lexical_cast<std::string>(cmd)); }
 
 std::vector<std::string> cnc_machine::talk(const std::string& cmd)
 {
-    if (g_dump_wire)
+    if (settings::g_params.dump_wire)
         std::cerr << "\r\033[33m... send: " << cmd << "\033[0m" << std::endl;
 
     *s_ << cmd << std::endl;
@@ -173,7 +175,7 @@ std::vector<std::string> cnc_machine::talk(const std::string& cmd)
         if (!line.empty() && line[line.size() - 1] == '\r')
             line.pop_back();
 
-        if (g_dump_wire)
+        if (settings::g_params.dump_wire)
             std::cerr << "\r\033[32m... recv: " << line << "\033[0m" << std::endl;
 
         if (line == "ok") {
@@ -193,6 +195,4 @@ std::vector<std::string> cnc_machine::talk(const std::string& cmd)
 
     throw grbl_error::protocol_violation();
 }
-
-
 

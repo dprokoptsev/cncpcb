@@ -1,12 +1,17 @@
 #include "keyboard.h"
 #include "utility.h"
 #include "cnc.h"
+#include "settings.h"
 #include <termios.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include <signal.h>
 #include <map>
 #include <string>
 #include <algorithm>
 #include <iostream>
+#include <iomanip>
+#include <memory>
 
 
 static const std::map<std::string, key> KEY_SEQS = {
@@ -67,7 +72,44 @@ key rawtty::getkey()
 }
 
 
+
 namespace interactive {
+
+static struct winsize g_winsize;
+static bool g_have_winsize = false;
+
+static const struct winsize& window_size()
+{
+    if (!g_have_winsize) {
+        if (ioctl(0, TIOCGWINSZ, &g_winsize)) {
+            g_winsize.ws_row = 25;
+            g_winsize.ws_col = 80;
+        }
+    }
+    return g_winsize;
+}
+
+class winsize_monitor_ {
+public:
+    winsize_monitor_()
+    {
+        struct sigaction s;
+        memset(&s, 0, sizeof(s));
+        s.sa_handler = &winsize_monitor_::sighandler;
+        s.sa_flags = SA_RESTART;
+        sigaction(SIGWINCH, &s, 0);
+    }
+private:
+    static void sighandler(int) { g_have_winsize = false; }
+};
+
+static winsize_monitor_ g_winsize_monitor_;
+
+void clear_line()
+{
+    std::cerr << "\r" << std::string(window_size().ws_col - 1, ' ') << "\r" << std::flush;
+}
+
 
 static const double FEED_RATE = 4;
 
@@ -112,6 +154,29 @@ private:
     bool probed_ = false;
 };
 
+
+static bool handle_xy(cnc_machine& cnc, key k, cnc_machine::move_mode mode = cnc_machine::move_mode::safe)
+{
+    if (k == key::left) {
+        cnc.move_xy(cnc.position() - vector::axis::x(g_feed_xy), mode);
+    } else if (k == key::right) {
+        cnc.move_xy(cnc.position() + vector::axis::x(g_feed_xy), mode);
+    } else if (k == key::up) {
+        cnc.move_xy(cnc.position() + vector::axis::y(g_feed_xy), mode);
+    } else if (k == key::down) {
+        cnc.move_xy(cnc.position() - vector::axis::y(g_feed_xy), mode);
+    } else if (k == key::plus) {
+        g_feed_xy *= FEED_RATE;
+    } else if (k == key::minus) {
+        g_feed_xy /= FEED_RATE;
+    } else {
+        return false;
+    }
+    
+    return true;
+}
+
+
 point position(cnc_machine& cnc, const std::string& prompt, cnc_machine::move_mode mode)
 {
     z_handler zh(cnc, mode);
@@ -128,27 +193,15 @@ point position(cnc_machine& cnc, const std::string& prompt, cnc_machine::move_mo
         
         key k = raw.getkey();
         
-        if (k == key::left) {
-            cnc.move_xy(cnc.position() - vector::axis::x(g_feed_xy), mode);
-        } else if (k == key::right) {
-            cnc.move_xy(cnc.position() + vector::axis::x(g_feed_xy), mode);
-        } else if (k == key::up) {
-            cnc.move_xy(cnc.position() + vector::axis::y(g_feed_xy), mode);
-        } else if (k == key::down) {
-            cnc.move_xy(cnc.position() - vector::axis::y(g_feed_xy), mode);
-        } else if (k == key::plus) {
-            g_feed_xy *= FEED_RATE;
-        } else if (k == key::minus) {
-            g_feed_xy /= FEED_RATE;
+        if (handle_xy(cnc, k, mode) || zh.handle_keypress(k)) {
+            continue;
         } else if (k == key::enter) {
-            std::cerr << "\r\n";
+            clear_line();
             return cnc.position();
         } else if (k == key::q) {
-            std::cerr << "\r\n";
+            clear_line();
             return point();
-        } else if (zh.handle_keypress(k)) {
-            continue;
-        }
+        } 
     }
 }
 
@@ -182,10 +235,10 @@ vector angle(cnc_machine& cnc, const std::string& prompt, const point& zero, con
         } else if (zh.handle_keypress(k)) {
             continue;
         } else if (k == key::enter) {
-            std::cerr << "\r\n";
+            clear_line();
             return v;
         } else if (k == key::q) {
-            std::cerr << "\r\n";
+            clear_line();
             return vector();
         }
     }
@@ -227,10 +280,10 @@ ssize_t point_list::show(const std::string& prompt, size_t start_idx /* = 0*/)
         } else if (zh.handle_keypress(k)) {
             continue;
         } else if (k == key::enter) {
-            std::cerr << "\r\n";
+            clear_line();
             return idx;
         } else if (k == key::q || k == key::y) {
-            std::cerr << "\r\n";
+            clear_line();
             return -1;
         }
     }
@@ -270,13 +323,15 @@ void point_list::read(const std::string& prompt, size_t count)
 }
 
 
-void change_tool(cnc_machine& cnc, const std::string& msg)
+void change_tool(cnc_machine& cnc, const std::string& prompt)
 {
-    std::cerr << "\n\033[33;1m" << msg << "\033[0m" << std::endl;
+    std::string msg = (prompt.empty() ? "Change tool" : prompt);
     z_handler zh(cnc);
     rawtty raw;
     
     for (;;) {
+        std::cerr << "\r\033[33;1m" << msg << "\033[0m "
+                  << "(feed xy=" << g_feed_xy << " z=" << g_feed_z << ")" << std::flush;
         key k = raw.getkey();
         
         if (k == key::space) {
@@ -287,15 +342,18 @@ void change_tool(cnc_machine& cnc, const std::string& msg)
                     cnc.move_z(1);
                 cnc.set_spindle_on();
             }
-            
+
+        } else if (!cnc.is_spindle_on() && handle_xy(cnc, k)) {
+            continue;
         } else if (!cnc.is_spindle_on() && zh.handle_keypress(k)) {
             continue;
         } else if (!cnc.is_spindle_on() && k == key::enter) {
-            if (true || zh.probed()) {
-                std::cerr << "\r\n";
+            if (!settings::g_params.require_z_level_at_tool_change || zh.probed()) {
+                clear_line();
                 break;
             } else {
-                std::cerr << "Please probe z\r\n";
+                clear_line();
+                std::cerr << "\rPlease probe Z\r\n";
             }
         }
     }
@@ -303,6 +361,17 @@ void change_tool(cnc_machine& cnc, const std::string& msg)
     point p = cnc.position();
     cnc.redefine_position({ p.x, p.y, 0 });
     cnc.move_z(1);
+}
+
+
+void progress_bar::update()
+{
+    if (settings::g_params.dump_wire)
+        return;
+    std::cerr << "\r" << prompt_ << ": " << std::setfill(' ') << std::setw(3) << (100 * cur_ / max_) << "% [";
+    int bar_width = window_size().ws_col - prompt_.size() - 11;
+    int filled_width = bar_width * cur_ / max_;
+    std::cerr << std::string(filled_width, '#') << std::string(bar_width - filled_width, '.') << "]" << std::flush;
 }
 
 

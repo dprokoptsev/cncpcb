@@ -40,12 +40,41 @@ void workflow::load_border(const std::string& filename)
     border_.reset(new gcode(f));
 }
 
-void workflow::set_orientation()
+void workflow::require_border()
 {
     if (!border_)
         throw error("border not loaded");
+}
 
-    orientation orient;    
+void workflow::require_orientation()
+{
+    if (!orient_.defined())
+        throw error("orientation not defined; run 'orient' or 'userefs'");
+}
+
+void workflow::load_drill(const std::string& filename)
+{
+    require_border();
+    std::ifstream f(filename);
+    auto drill = std::make_unique<gcode>(f);
+    
+    auto bbox = drill->bounding_box();
+    auto border = border_->bounding_box();
+    if (bbox.first.x < border.first.x
+        || bbox.first.y < border.first.y
+        || bbox.second.x > border.second.x
+        || bbox.second.y > border.second.y
+    ) {
+        throw error("drill exceeds PCB border");
+    }
+    
+    drill_ = std::move(drill);
+}
+
+void workflow::set_orientation()
+{
+    require_border();
+    ::orientation orient;    
 
     auto bbox = border_->bounding_box();
     vector size = bbox.second - bbox.first;
@@ -57,7 +86,7 @@ void workflow::set_orientation()
         ll.z = 0;
         v = interactive::angle(cnc(), "Upper-right corner", ll, v);
 
-        orient = orientation(bbox.first, ll, vector::axis::x().rotate(size.angle_to(v)));
+        orient = ::orientation(bbox.first, ll, vector::axis::x().rotate(size.angle_to(v)));
         std::cout << "Orientation: " << orient << std::endl;
 
         std::vector<point> refpts = make_reference_points(*border_);
@@ -87,9 +116,8 @@ void workflow::set_orientation()
 
 void workflow::drill_reference_holes()
 {
-    if (!border_)
-        throw error("border not loaded");
-    
+    require_border();
+    require_orientation();
     interactive::change_tool(cnc(), "Change tool to drill ~0.5mm");
     
     std::vector<point> refpts = make_reference_points(*border_);
@@ -124,10 +152,10 @@ void workflow::use_reference_holes()
     refpts.read("Position reference holes", origpts.size());
     
     for (;;) {
-        for (point& pt: refps.points())
+        for (point& pt: refpts.points())
             pt.z = 0;
 
-        orientation o = orientation::reconstruct(origpts, refpts.points());
+        ::orientation o = orientation::reconstruct(origpts, refpts.points());
         
         refpts.points().clear();
         for (const auto& pt: origpts)
@@ -138,4 +166,18 @@ void workflow::use_reference_holes()
             break;
         }
     }
+}
+
+
+void workflow::drill()
+{
+    require_border();
+    require_orientation();
+    if (!drill_)
+        throw error("load drill gcode first");
+    
+    gcode d(*drill_);
+    d.xform_by(orient_);
+    
+    d.send_to(cnc(), "Drilling");
 }
