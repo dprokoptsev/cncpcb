@@ -8,9 +8,11 @@
 class gcmd;
 
 class cnc_machine {
-    static constexpr const double MIN_SAFE_HEIGHT = 1;
+    static constexpr const double MIN_SAFE_HEIGHT = 0.6;
 
 public:
+    enum class move_mode { safe, unsafe };
+    
     explicit cnc_machine(std::iostream& s);
     
     void reset();
@@ -19,8 +21,8 @@ public:
     void redefine_position(point newpos);
     void set_zero() { redefine_position({ 0, 0, 0 }); }
         
-    void move_xy(point p);
-    void move_z(double z);    
+    void move_xy(point p, move_mode m = move_mode::safe);
+    void move_z(double z, move_mode m = move_mode::safe);
     double probe();
     
     void feed_z(double z);

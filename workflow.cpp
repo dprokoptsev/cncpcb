@@ -23,6 +23,16 @@ static std::vector<point> make_reference_points(const gcode& border)
     return ret;
 }
 
+static std::vector<std::string> reference_points_desc()
+{
+    return {
+        "lower-left",
+        "upper-left",
+        "upper-right",
+        "lower-right"
+    };
+}
+
 
 void workflow::load_border(const std::string& filename)
 {
@@ -62,7 +72,10 @@ void workflow::set_orientation()
                 }
             )
         );
-        if (interactive::show_point_list(cnc(), "Reference holes", refpts, nearest) != -1)
+        if (
+            interactive::point_list(cnc(), refpts, reference_points_desc())
+            .show("Reference holes", nearest) != -1
+        )
             break;
 
         cnc().move_xy(ll);
@@ -105,5 +118,24 @@ void workflow::use_reference_holes()
     if (!border_)
         throw error("border not loaded");
     
-    throw error("not implemented yet");
+    std::vector<point> origpts = make_reference_points(*border_);
+    
+    interactive::point_list refpts(cnc(), reference_points_desc());
+    refpts.read("Position reference holes", origpts.size());
+    
+    for (;;) {
+        for (point& pt: refps.points())
+            pt.z = 0;
+
+        orientation o = orientation::reconstruct(origpts, refpts.points());
+        
+        refpts.points().clear();
+        for (const auto& pt: origpts)
+            refpts.points().push_back(o(pt));
+        
+        if (!refpts.edit("Reposition reference points")) {
+            orient_ = o;
+            break;
+        }
+    }
 }

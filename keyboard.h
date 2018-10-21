@@ -1,6 +1,7 @@
 #pragma once
 
 #include "geom.h"
+#include "cnc.h"
 #include <termios.h>
 #include <string>
 #include <vector>
@@ -36,15 +37,41 @@ private:
 };
 
 
-class cnc_machine;
-
-
 namespace interactive {
 
-point position(cnc_machine& cnc, const std::string& prompt);
+point position(
+    cnc_machine& cnc, const std::string& prompt,
+    cnc_machine::move_mode mode = cnc_machine::move_mode::safe
+);
+
 vector angle(cnc_machine& cnc, const std::string& prompt, const point& zero, const vector& orig);
-ssize_t show_point_list(cnc_machine& cnc, const std::string& prompt, const std::vector<point>& pts, size_t start_idx = 0);
-void edit_point_list(cnc_machine& cnc, const std::string& prompt, std::vector<point>& pts);
+
 void change_tool(cnc_machine& cnc, const std::string& prompt);
+
+
+class point_list {
+public:
+    explicit point_list(cnc_machine& cnc, std::vector<point> pts, const std::vector<std::string> desc = {}):
+        cnc_(&cnc), pts_(pts), desc_(desc) {}
+    explicit point_list(cnc_machine& cnc, const std::vector<std::string> desc = {}):
+        cnc_(&cnc), desc_(desc) {}
+    
+    ssize_t show(const std::string& prompt, size_t start_idx = 0);
+    bool edit(const std::string& prompt);
+    void read(const std::string& prompt, size_t sz);
+    
+    std::vector<point>& points() { return pts_; }
+
+private:
+    cnc_machine* cnc_;
+    std::vector<point> pts_;
+    std::vector<std::string> desc_;
+    
+    double feed_xy_;
+    double feed_z_;
+    
+    cnc_machine& cnc() { return *cnc_; }
+    std::string point_desc(size_t idx) const;
+};
 
 } // namespace interactive

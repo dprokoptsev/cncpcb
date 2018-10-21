@@ -71,28 +71,34 @@ namespace interactive {
 
 static const double FEED_RATE = 4;
 
+static double g_feed_xy = 20;
+static double g_feed_z = 2;
+static double g_feed_angle = 10;
+
+
 class z_handler {
 public:
-    explicit z_handler(cnc_machine& cnc): cnc_(&cnc) {}
+    explicit z_handler(cnc_machine& cnc, cnc_machine::move_mode mode = cnc_machine::move_mode::safe):
+        cnc_(&cnc), mode_(mode)
+    {}
     
-    double feed() const { return feed_z_; }
     bool probed() const { return probed_; }
     
     bool handle_keypress(key k)
     {
         if (k == key::page_up) {
-            cnc_->move_z(cnc_->position().z + feed_z_);
+            cnc_->move_z(cnc_->position().z + g_feed_z, mode_);
             probed_ = false;
         } else if (k == key::page_down) {
-            cnc_->move_z(cnc_->position().z - feed_z_);
+            cnc_->move_z(cnc_->position().z - g_feed_z, mode_);
             probed_ = false;
         } else if (k == key::p) {
             cnc_->probe();
             probed_ = true;
         } else if (k == key::multiplies) {
-            feed_z_ *= FEED_RATE;
+            g_feed_z *= FEED_RATE;
         } else if (k == key::divides) {
-            feed_z_ /= FEED_RATE;
+            g_feed_z /= FEED_RATE;
         } else {
             return false;
         }
@@ -102,14 +108,13 @@ public:
     
 private:
     cnc_machine* cnc_;
-    double feed_z_ = 2;
+    cnc_machine::move_mode mode_;
     bool probed_ = false;
-};    
+};
 
-point position(cnc_machine& cnc, const std::string& prompt)
+point position(cnc_machine& cnc, const std::string& prompt, cnc_machine::move_mode mode)
 {
-    double feed_xy = 10;
-    z_handler zh(cnc);
+    z_handler zh(cnc, mode);
     
     rawtty raw;
     for (;;) {
@@ -119,22 +124,22 @@ point position(cnc_machine& cnc, const std::string& prompt)
                   << ": x \033[33;1m" << p.x << "\033[0m"
                   << ", y \033[33;1m" << p.y << "\033[0m"
                   << ", z \033[33;1m" << p.z << "\033[0m"
-                  << ", feed xy " << feed_xy << ", z " << zh.feed() << std::flush;
+                  << ", feed xy " << g_feed_xy << ", z " << g_feed_z << std::flush;
         
         key k = raw.getkey();
         
         if (k == key::left) {
-            cnc.move_xy(cnc.position() - vector::axis::x(feed_xy));
+            cnc.move_xy(cnc.position() - vector::axis::x(g_feed_xy), mode);
         } else if (k == key::right) {
-            cnc.move_xy(cnc.position() + vector::axis::x(feed_xy));
+            cnc.move_xy(cnc.position() + vector::axis::x(g_feed_xy), mode);
         } else if (k == key::up) {
-            cnc.move_xy(cnc.position() + vector::axis::y(feed_xy));
+            cnc.move_xy(cnc.position() + vector::axis::y(g_feed_xy), mode);
         } else if (k == key::down) {
-            cnc.move_xy(cnc.position() - vector::axis::y(feed_xy));
+            cnc.move_xy(cnc.position() - vector::axis::y(g_feed_xy), mode);
         } else if (k == key::plus) {
-            feed_xy *= FEED_RATE;
+            g_feed_xy *= FEED_RATE;
         } else if (k == key::minus) {
-            feed_xy /= FEED_RATE;
+            g_feed_xy /= FEED_RATE;
         } else if (k == key::enter) {
             std::cerr << "\r\n";
             return cnc.position();
@@ -150,7 +155,6 @@ point position(cnc_machine& cnc, const std::string& prompt)
 vector angle(cnc_machine& cnc, const std::string& prompt, const point& zero, const vector& orig)
 {
     vector v = orig;
-    double feed = 20 /*degrees*/;
     z_handler zh(cnc);
     
     rawtty raw;
@@ -161,20 +165,20 @@ vector angle(cnc_machine& cnc, const std::string& prompt, const point& zero, con
         std::cerr << "\r" << prompt
                   << ": angle \033[33;1m" << orig.angle_to(v) * 180 / M_PI << "\xC2\xB0\033[0m"
                   << ", pos " << p
-                  << ", feed xy " << feed << "\xC2\xB0, z " << zh.feed() << std::flush;
+                  << ", feed xy " << g_feed_angle << "\xC2\xB0, z " << g_feed_z << std::flush;
         
         key k = raw.getkey();
         
         if (k == key::left || k == key::up) {
-            v = v.rotate(feed * M_PI / 180);
+            v = v.rotate(g_feed_angle * M_PI / 180);
             cnc.move_xy(zero + v);
         } else if (k == key::right || k == key::down) {
-            v = v.rotate(-feed * M_PI / 180);
+            v = v.rotate(-g_feed_angle * M_PI / 180);
             cnc.move_xy(zero + v);
         } else if (k == key::plus) {
-            feed *= 4;
+            g_feed_angle *= 4;
         } else if (k == key::minus) {
-            feed /= 4;
+            g_feed_angle /= 4;
         } else if (zh.handle_keypress(k)) {
             continue;
         } else if (k == key::enter) {
@@ -188,28 +192,38 @@ vector angle(cnc_machine& cnc, const std::string& prompt, const point& zero, con
 }
 
 
-ssize_t show_point_list(cnc_machine& cnc, const std::string& prompt, const std::vector<point>& pts, size_t start_idx /*= 0*/)
+
+std::string point_list::point_desc(size_t idx) const
+{
+    if (idx < desc_.size())
+        return desc_[idx];
+    else
+        return "pt #" + std::to_string(idx) + " of " + std::to_string(pts_.size());
+}
+
+ssize_t point_list::show(const std::string& prompt, size_t start_idx /* = 0*/)
 {
     size_t idx = start_idx;
-    z_handler zh(cnc);
+    z_handler zh(cnc());
     
-    cnc.move_xy(pts[idx]);
+    cnc().move_xy(pts_[idx]);
     
     rawtty raw;
     for (;;) {
-        std::cerr << "\r" << prompt << ": pt \033[33;1m" << idx+1 << " of " << pts.size()
-                  << "\033[0m (" << pts[idx].grbl() << "); "
-                  << "z=" << cnc.position().z
-                  << " (feed " << zh.feed() << ")" << std::flush;
+        std::cerr << "\r" << prompt << ": \033[33;1m"
+                  << point_desc(idx)
+                  << "\033[0m (" << pts_[idx].grbl() << "); "
+                  << "z=" << cnc().position().z
+                  << " (feed " << g_feed_z << ")" << std::flush;
                 
         key k = raw.getkey();
         
         if (k == key::left || k == key::up) {
-            idx = (idx ? idx : pts.size()) - 1;
-            cnc.move_xy(pts[idx]);
+            idx = (idx ? idx : pts_.size()) - 1;
+            cnc().move_xy(pts_[idx]);
         } else if (k == key::right || k == key::down) {
-            idx = (idx + 1 ) % pts.size();
-            cnc.move_xy(pts[idx]);
+            idx = (idx + 1 ) % pts_.size();
+            cnc().move_xy(pts_[idx]);
         } else if (zh.handle_keypress(k)) {
             continue;
         } else if (k == key::enter) {
@@ -223,19 +237,38 @@ ssize_t show_point_list(cnc_machine& cnc, const std::string& prompt, const std::
 }
 
 
-void edit_point_list(cnc_machine& cnc, const std::string& prompt, std::vector<point>& pts)
+bool point_list::edit(const std::string& prompt)
 {
+    bool changed = false;
+
+    for (size_t idx = 0; idx != pts_.size(); ++idx) {
+        point& pt = pts_[idx];
+        if (!pt.defined())
+            pt = position(cnc(), "Position " + point_desc(idx));
+    }
+    
     ssize_t idx = 0;
     for (;;) {
-        idx = show_point_list(cnc, prompt, pts, idx);
+        idx = show(prompt, idx);
         if (idx == -1)
-            return;
+            return changed;
         
-        point newpt = position(cnc, "  Edit pt " + std::to_string(idx + 1));
-        if (newpt.defined())
-            pts[idx] = newpt;
+        point newpt = position(cnc(), "  Edit " + point_desc(idx));
+        if (newpt.defined()) {
+            pts_[idx] = newpt;
+            changed = true;
+        }
     }
 }
+
+void point_list::read(const std::string& prompt, size_t count)
+{
+    std::vector<point> ret;
+    for (size_t idx = 0; idx != count; ++idx)
+        ret.push_back(position(cnc(), prompt + ": " + point_desc(idx)));
+    pts_ = std::move(ret);
+}
+
 
 void change_tool(cnc_machine& cnc, const std::string& msg)
 {

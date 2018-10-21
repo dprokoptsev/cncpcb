@@ -71,7 +71,7 @@ int main(int argc, char** argv)
                 } else if (cmd == "pos") {
                     std::cout << cnc.position() << std::endl;
                 } else if (cmd == "setzero") {
-                    interactive::position(cnc, "Set zero point");
+                    interactive::position(cnc, "Set zero point", cnc_machine::move_mode::unsafe);
                     cnc.set_zero();
                 } else if (cmd == "vi") {
                     interactive::position(cnc, "Interactive position");

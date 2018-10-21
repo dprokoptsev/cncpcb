@@ -78,6 +78,7 @@ public:
         static vector y(double y = 1) { return { 0, y, 0 }; }
         static vector z(double z = 1) { return { 0, 0, z }; }
     };
+    static vector zero() { return { 0, 0, 0 }; }
     
     vector operator + (const vector& v) const { return { x + v.x, y + v.y, z + v.z }; }
     vector operator - (const vector& v) const { return { x - v.x, y - v.y, z - v.z }; }
@@ -120,6 +121,9 @@ public:
     double distance_to(const point& p) const { return (p - *this).length(); }
     
     point rotate(const point& center, double angle) const { return center + (*this - center).rotate(angle); }
+    
+    vector to_vector() const { return *this - point(0, 0, 0); }
+    static point from_vector(const vector& v) { return point(0, 0, 0) + v; }
 };
 
 
@@ -130,6 +134,8 @@ public:
     orientation(point gcode_zero, point cnc_zero, vector rotation):
         gcode_zero_(gcode_zero), cnc_zero_(cnc_zero), rotation_(rotation.project_xy().unit())
     {}
+    
+    static orientation reconstruct(const std::vector<point>& orig, const std::vector<point>& xformed);
     
     point operator()(const point& pt) const { return (pt - gcode_zero_).rotate(rotation_) + cnc_zero_; }
     

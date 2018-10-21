@@ -97,10 +97,10 @@ void cnc_machine::redefine_position(point newpos)
     position_ = newpos;
 }
 
-void cnc_machine::move_xy(point p)
+void cnc_machine::move_xy(point p, cnc_machine::move_mode m)
 {
     point c = position();
-    if (c.z < MIN_SAFE_HEIGHT) {
+    if (m == move_mode::safe && c.z < MIN_SAFE_HEIGHT) {
         move_z(MIN_SAFE_HEIGHT);
         c.z = MIN_SAFE_HEIGHT;
     }
@@ -109,8 +109,11 @@ void cnc_machine::move_xy(point p)
     position_ = point(p.x, p.y, c.z);
 }
 
-void cnc_machine::move_z(double z)
+void cnc_machine::move_z(double z, cnc_machine::move_mode m)
 {
+    if (m == move_mode::safe)
+        z = std::max(z, 0.1);
+    
     talk("G0 Z" + std::to_string(z));
     position_.z = z;
 }

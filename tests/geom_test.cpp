@@ -38,4 +38,19 @@ TEST_CASE("orientation", "[geometry][xform]")
 {
     orientation o({ -44.5, -0.08, 0 }, { 9.38, -3.12, 0 }, { 1,0,0 });
     CHECK(o({ -47.5, -0.08, 0 }) == approx(point(6.38, -3.12, 0)));
+    
+    orientation r = orientation::reconstruct({
+        { 11, 5, 0 },
+        { 10, 6, 0 },
+        {  9, 5, 0 },
+        { 10, 4, 0 }
+    },{
+        { -sqrt(2)/2, sqrt(2)/2, 0 },
+        { -sqrt(2)/2, -sqrt(2)/2, 0 },
+        { sqrt(2)/2, -sqrt(2)/2, 0 },
+        { sqrt(2)/2, sqrt(2)/2, 0 }
+    });
+    
+    CHECK(r({10, 5, 0}) == approx(point(0, 0, 0)));
+    CHECK(r({10+sqrt(2), 5+sqrt(2), 0}) == approx(point(-2, 0, 0)));
 }

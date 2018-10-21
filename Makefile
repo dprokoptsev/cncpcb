@@ -1,6 +1,6 @@
 
 BIN = cnc
-SRCS = errors.cpp cnc.cpp main.cpp keyboard.cpp workflow.cpp
+SRCS = errors.cpp cnc.cpp main.cpp keyboard.cpp workflow.cpp geom.cpp
 
 TESTS = geom_test.cpp
 
