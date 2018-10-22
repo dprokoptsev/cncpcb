@@ -12,9 +12,16 @@ struct settings {
 
 static const settings DRILL = {
     .spindle_speed = 1000,
-    .feed_rate = 50,
+    .feed_rate = 75,
     .travel_z = 1,
-    .work_z = -1.7
+    .work_z = -1.8
+};
+
+static const settings MILL = {
+    .spindle_speed = 1000,
+    .feed_rate = 75,
+    .travel_z = 1,
+    .work_z = -0.05
 };
 
 struct global_params {

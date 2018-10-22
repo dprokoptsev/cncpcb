@@ -1,10 +1,11 @@
 #pragma once
 
+#include "gcode.h"
+#include "height_map.h"
 #include <string>
 #include <stdexcept>
 
 class cnc_machine;
-class gcode;
 
 class workflow {
 public:
@@ -14,27 +15,52 @@ public:
     };
 
     explicit workflow(cnc_machine& cnc): cnc_(&cnc) {}
-
+    
+    void mirror();
+    
     void load_border(const std::string& filename);
-    void load_drill(const std::string& filename);
+    
+    void load_drill(const std::string& filename) { drill_ = load_gcode(filename); }
+    void load_mill(const std::string& filename) { mill_ = load_gcode(filename); }
     
     const ::orientation& orientation() const { return orient_; }
-    void set_orientation();
+    void set_orientation(double angle_hint = 0);
     void drill_reference_holes();
     void use_reference_holes();
     
-    void drill();
+    void scan_height_map();
+    void save_height_map(const std::string& filename) const;
+    void load_height_map(const std::string& filename);
     
+    void drill();
+    void mill();
+    void cut();
+    
+    void resume();
+    
+    void dump_mill(const std::string& out) const { dump_layer(mill_.get(), out); }
+
 private:
     cnc_machine& cnc() { return *cnc_; }
-    void require_border();
-    void require_orientation();
+    void require_border() const;
+    void require_orientation() const;
+    
+    std::unique_ptr<gcode> load_gcode(const std::string& filename);
+    void dump_layer(const gcode* gc, const std::string& out) const;
+    
+    std::vector<point> holes() const;
     
 private:
     cnc_machine* cnc_;
     std::unique_ptr<gcode> border_;
     ::orientation orient_;
+    std::unique_ptr<height_map> height_map_;
     
     std::unique_ptr<gcode> drill_;
+    std::unique_ptr<gcode> mill_;
+    
+    std::unique_ptr<gcode> current_;
+    
+    bool mirror_ = false;
 };
 

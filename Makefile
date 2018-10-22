@@ -2,7 +2,7 @@
 BIN = cnc
 SRCS = errors.cpp cnc.cpp main.cpp keyboard.cpp workflow.cpp geom.cpp gcode.cpp settings.cpp
 
-TESTS = geom_test.cpp gcode_test.cpp
+TESTS = geom_test.cpp gcode_test.cpp height_map_test.cpp
 
 LIBS = readline
 

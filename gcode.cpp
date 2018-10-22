@@ -68,14 +68,6 @@ void gcmd::set_point(const ::point& pt)
     pt_ = pt;
 }
 
-gcmd gcmd::xform_by(const orientation& o) const
-{
-    gcmd ret(*this);
-    if (pt_.defined())
-        ret.pt_ = o(pt_);
-    return ret;
-}
-
 std::ostream& operator << (std::ostream& s, const gcmd& c)
 {
     s << c.cmd_;
@@ -109,26 +101,15 @@ gcode::gcode(std::istream& s)
 }
 
 
-std::pair<point, point> gcode::bounding_box() const
+::bounding_box gcode::bounding_box() const
 {
-    point min, max;
-    min.z = max.z = 0;
+    ::bounding_box box;
     for (const gcmd& c: *this) {
         point pt = c.point();
-        if (!pt.defined())
-            continue;
-
-        if (std::isnan(min.x) || min.x > pt.x)
-            min.x = pt.x;
-        if (std::isnan(min.y) || min.y > pt.y)
-            min.y = pt.y;
-        if (std::isnan(max.x) || max.x < pt.x)
-            max.x = pt.x;
-        if (std::isnan(max.y) || max.y < pt.y)
-            max.y = pt.y;
+        if (pt.defined())
+            box.extend(pt);
     }
-
-    return { min, max };
+    return box;
 }
 
 gcode::gcmd_classification gcode::classify(const gcmd& c)
@@ -153,19 +134,18 @@ gcode::gcmd_classification gcode::classify(const gcmd& c)
     return ERROR;
 }
 
-void gcode::xform_by(const orientation& o)
-{
-    for (gcmd& cmd: cmds_)
-        cmd = cmd.xform_by(o);
-}
-
 void gcode::send_to(cnc_machine& cnc, const std::string& prompt)
 {
     bool in_tool_chg = false;
     std::string tool_chg_prompt;
     
     interactive::progress_bar progress(prompt.empty() ? "Working" : prompt, cmds_.size());
-    for (const gcmd& cmd: cmds_) {
+    cnc.move_z(1);
+    
+    bool fast_forward = (resume_point_ != 0);
+    auto i = cmds_.begin() + resume_point_, ie = cmds_.end();
+    for (; i != ie; ++i) {
+        const gcmd& cmd = *i;
         
         if (cmd.letter() == 'T' || cmd.equals('M', 6)) {
             in_tool_chg = true;
@@ -191,11 +171,18 @@ void gcode::send_to(cnc_machine& cnc, const std::string& prompt)
             }
             
         } else {
+            if (cmd.equals('G', 0) && fast_forward && std::distance(cmds_.begin(), i) == resume_point_)
+                fast_forward = false;
+            
+            if (fast_forward && (cmd.equals('G', 1) || cmd.equals('G', 0)))
+                continue;
+            
+            if (!fast_forward && cmd.equals('G', 0))
+                resume_point_ = std::distance(cmds_.begin(), i);
+                
             cnc.send_gcmd(cmd);
         }
 
         progress.increment();
     }
-    
-    std::cerr << std::endl;
 }

@@ -5,6 +5,7 @@
 #include <termios.h>
 #include <string>
 #include <vector>
+#include <ctime>
 
 
 enum class key {
@@ -22,8 +23,10 @@ enum class key {
     space,
     enter,
     q,
-    p,
-    y
+    p,        
+    shift_p,
+    y,
+    shift_z
 };
 
 
@@ -79,11 +82,11 @@ private:
 
 class progress_bar {
 public:
-    progress_bar(const std::string& prompt, size_t max):
-        prompt_(prompt), max_(max), cur_(0)
-    { update(); }
-    
-    ~progress_bar() { clear_line(); }
+    progress_bar(const std::string& prompt, size_t max);
+    ~progress_bar();
+
+    progress_bar(const progress_bar&) = delete;
+    progress_bar& operator = (const progress_bar&) = delete;
     
     void set(size_t value) { cur_ = value; update(); }
     void increment() { ++cur_; update(); }
@@ -92,6 +95,8 @@ private:
     std::string prompt_;
     size_t max_;
     size_t cur_;
+    time_t started_at_;
+    time_t last_updated_at_;
     
     void update();
 };

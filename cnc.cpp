@@ -11,6 +11,8 @@
 #include <vector>
 #include <utility>
 
+#include <unistd.h>
+
 
 cnc_machine::cnc_machine(std::iostream& s): s_(&s)
 {
@@ -38,6 +40,9 @@ void cnc_machine::reset()
 
 void cnc_machine::get_status()
 {
+    touches_ground_ = false;
+    idle_ = false;
+    
     std::string status;
     while (status.empty()) {
         auto st = talk("?");
@@ -48,7 +53,9 @@ void cnc_machine::get_status()
     point wpos;
     point mpos;
     for (const std::string& field: split<std::string>(status, "|")) {
-        if (field.substr(0, 5) == "WPos:") {
+        if (field.substr(0, 4) == "Idle") {
+            idle_ = true;
+        } if (field.substr(0, 5) == "WPos:") {
             wpos = point(field.substr(5));
         } else if (field.substr(0, 5) == "MPos:") {
             mpos = point(field.substr(5));
@@ -57,6 +64,9 @@ void cnc_machine::get_status()
         } else if (field.substr(0, 3) == "FS:") {
             auto fs = split<double>(field.substr(3), ",");
             spindle_on_ = (fs.size() >= 2 && fs[1] >= 1);
+        } else if (field.substr(0, 3) == "Pn:") {
+            std::string s = field.substr(3);
+            touches_ground_ = (s.find('P') != std::string::npos);
         }
     }
     
@@ -74,6 +84,22 @@ point cnc_machine::position()
     if (!position_.defined())
         get_status();
     return position_;
+}
+
+bool cnc_machine::touches_ground()
+{
+    get_status();
+    return touches_ground_;
+}
+
+void cnc_machine::wait()
+{
+    for (;;) {
+        get_status();
+        if (idle_)
+            break;
+        usleep(50000);
+    }
 }
 
 vector cnc_machine::wco()
@@ -132,6 +158,61 @@ double cnc_machine::probe()
     return position().z;
 }
 
+double cnc_machine::high_precision_probe()
+{
+    auto probe_rate = [this]{
+        static const double SAMPLES = 20;
+        size_t touches = 0;
+        for (size_t i = 0; i != SAMPLES; ++i)
+            touches += (int) touches_ground();
+        return touches * 1.0 / SAMPLES;
+    };
+    
+    set_feed_rate(5);
+
+    while (touches_ground())
+        move_z(position().z + 1);
+    
+    double bottom = probe();
+    
+    double top = bottom + 0.1;
+    for (;;) {
+        feed_z(top);
+        wait();
+        if (probe_rate() < 0.1)
+            break;
+        top += 0.5;
+    }
+    
+    double step = (top - bottom) / 10;
+    while (step > 0.0005) {
+        
+        double z = bottom;
+        feed_z(z);
+        wait();
+        while (z < top && probe_rate() > 0.8) {
+            z += step;
+            feed_z(z);
+            wait();
+        }
+        std::swap(z, top);
+        feed_z(z);
+        wait();
+        while (z > bottom && probe_rate() < 0.2) {
+            z -= step;
+            feed_z(z);
+            wait();
+        }
+        
+        step = std::min(step/5, (top - bottom) / 10);
+    }
+    
+    double z = (top+bottom)/2;
+    feed_z(z);
+    return z;
+}
+
+
 void cnc_machine::set_spindle_speed(double speed)
 {
     talk("S" + std::to_string(speed));
@@ -160,7 +241,11 @@ void cnc_machine::set_spindle_off()
 
 void cnc_machine::dwell(double seconds) { talk("G4 P" + std::to_string(seconds)); }
 
-void cnc_machine::send_gcmd(const gcmd& cmd) { talk(lexical_cast<std::string>(cmd)); }
+void cnc_machine::send_gcmd(const gcmd& cmd)
+{
+    talk(lexical_cast<std::string>(cmd));
+    position_ = point();
+}
 
 std::vector<std::string> cnc_machine::talk(const std::string& cmd)
 {

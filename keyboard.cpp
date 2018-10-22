@@ -28,7 +28,9 @@ static const std::map<std::string, key> KEY_SEQS = {
     { "\r", key::enter },
     { " ", key::space },
     { "q", key::q },
-    { "p", key::p }
+    { "p", key::p },
+    { "P", key::shift_p },
+    { "Z", key::shift_z },
 };
 
 
@@ -71,12 +73,14 @@ key rawtty::getkey()
     }
 }
 
+enum class interrupt_state { normal, interruptable, interrupted };
+static volatile interrupt_state g_interrupt_state = interrupt_state::normal;
 
 
 namespace interactive {
 
 static struct winsize g_winsize;
-static bool g_have_winsize = false;
+static volatile bool g_have_winsize = false;
 
 static const struct winsize& window_size()
 {
@@ -89,21 +93,38 @@ static const struct winsize& window_size()
     return g_winsize;
 }
 
-class winsize_monitor_ {
+class sighandler_ {
 public:
-    winsize_monitor_()
+    sighandler_()
+    {
+        install(SIGINT, &sighandler_::on_int);
+        install(SIGWINCH, &sighandler_::on_winch);
+    }
+    
+private:
+    static void on_winch(int) { g_have_winsize = false; }
+
+    static void on_int(int)
+    {
+        if (g_interrupt_state == interrupt_state::interruptable) {
+            g_interrupt_state = interrupt_state::interrupted;
+        } else {
+            signal(SIGINT, SIG_DFL);
+            raise(SIGINT);
+        }
+    }
+    
+    void install(int sig, void (*handler)(int))
     {
         struct sigaction s;
         memset(&s, 0, sizeof(s));
-        s.sa_handler = &winsize_monitor_::sighandler;
+        s.sa_handler = handler;
         s.sa_flags = SA_RESTART;
-        sigaction(SIGWINCH, &s, 0);
+        sigaction(sig, &s, 0);
     }
-private:
-    static void sighandler(int) { g_have_winsize = false; }
 };
 
-static winsize_monitor_ g_winsize_monitor_;
+static sighandler_ g_sighandler_;
 
 void clear_line()
 {
@@ -113,9 +134,9 @@ void clear_line()
 
 static const double FEED_RATE = 4;
 
-static double g_feed_xy = 20;
-static double g_feed_z = 2;
-static double g_feed_angle = 10;
+static double g_feed_xy = 5;
+static double g_feed_z = 0.5;
+static double g_feed_angle = 5;
 
 
 class z_handler {
@@ -134,9 +155,19 @@ public:
         } else if (k == key::page_down) {
             cnc_->move_z(cnc_->position().z - g_feed_z, mode_);
             probed_ = false;
-        } else if (k == key::p) {
-            cnc_->probe();
-            probed_ = true;
+        } else if (k == key::p || k == key::shift_p) {
+            
+            if (k == key::shift_p)
+                cnc_->high_precision_probe();
+            else
+                cnc_->probe();
+            
+            probed_ = (cnc_->position().project_xy().distance_to({0, 0, 0}) < 2);
+            if (!probed_ && mode_ == cnc_machine::move_mode::safe) {
+                clear_line();
+                std::cerr << "Warning: only probing at (0,0) will have effect" << std::endl;
+            }
+
         } else if (k == key::multiplies) {
             g_feed_z *= FEED_RATE;
         } else if (k == key::divides) {
@@ -169,6 +200,8 @@ static bool handle_xy(cnc_machine& cnc, key k, cnc_machine::move_mode mode = cnc
         g_feed_xy *= FEED_RATE;
     } else if (k == key::minus) {
         g_feed_xy /= FEED_RATE;
+    } else if (k == key::shift_z && mode == cnc_machine::move_mode::safe) {
+        cnc.move_xy({ 0, 0, 0 });
     } else {
         return false;
     }
@@ -353,7 +386,7 @@ void change_tool(cnc_machine& cnc, const std::string& prompt)
                 break;
             } else {
                 clear_line();
-                std::cerr << "\rPlease probe Z\r\n";
+                std::cerr << "\rPlease probe Z at (0,0)\r\n";
             }
         }
     }
@@ -363,15 +396,48 @@ void change_tool(cnc_machine& cnc, const std::string& prompt)
     cnc.move_z(1);
 }
 
+progress_bar::progress_bar(const std::string& prompt, size_t max):
+    prompt_(prompt), max_(max), cur_(0), started_at_(time(0)), last_updated_at_(0)
+{
+    g_interrupt_state = interrupt_state::interruptable;
+    update();
+}
+    
+progress_bar::~progress_bar()
+{
+    g_interrupt_state = interrupt_state::normal;
+    clear_line();
+}
+
 
 void progress_bar::update()
 {
+    static const int UPDATE_INTERVAL = 2;
+
+    if (g_interrupt_state == interrupt_state::interrupted) {
+        clear_line();
+        throw std::runtime_error("user break");
+    }
+
     if (settings::g_params.dump_wire)
         return;
+    if (last_updated_at_ > time(0) - UPDATE_INTERVAL)
+        return;
+
     std::cerr << "\r" << prompt_ << ": " << std::setfill(' ') << std::setw(3) << (100 * cur_ / max_) << "% [";
-    int bar_width = window_size().ws_col - prompt_.size() - 11;
+    int bar_width = window_size().ws_col - prompt_.size() - 21;
     int filled_width = bar_width * cur_ / max_;
-    std::cerr << std::string(filled_width, '#') << std::string(bar_width - filled_width, '.') << "]" << std::flush;
+    std::cerr << std::string(filled_width, '#') << std::string(bar_width - filled_width, '.') << "] ";
+    
+    if (cur_) {
+        ssize_t elapsed = time(0) - started_at_;
+        ssize_t t = elapsed * (max_ - cur_) / cur_;
+        std::cerr << std::setfill(' ') << std::setw(3) << (t / 3600) << ':'
+                  << std::setfill('0') << std::setw(2) << ((t % 3600) / 60) << ':'
+                  << std::setfill('0') << std::setw(2) << (t % 60);
+    }
+    std::cerr << std::flush;
+    last_updated_at_ = time(0);
 }
 
 

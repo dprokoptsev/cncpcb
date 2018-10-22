@@ -35,6 +35,7 @@ void usage()
     ::exit(1);
 }
 
+
 int main(int argc, char** argv)
 {
     try {
@@ -77,31 +78,71 @@ int main(int argc, char** argv)
                     cnc.set_zero();
                 } else if (cmd == "vi") {
                     interactive::position(cnc, "Interactive position");
-                } else if (!cmd.empty() && cmd[0] == '.') {
-                    cnc.talk(cmd.substr(1));
+                } else if (cmd == "hprobe") {
+                    std::cout << cnc.high_precision_probe() << std::endl;
+                } else if ((cmd == "gcode" || cmd == ".") && !args.empty()) {
+                    bool dump = settings::g_params.dump_wire;
+                    settings::g_params.dump_wire = true;
+                    cnc.talk(join(args, " "));
+                    settings::g_params.dump_wire = dump;
+                    
+                } else if (cmd == "dump_wire" && !args.empty()) {
+                    settings::g_params.dump_wire = (args[0] == "on");
                     
                 } else if (cmd == "load" && args.size() >= 2) {
                     if (args[0] == "border")
                         w->load_border(args[1]);
                     else if (args[0] == "drill")
                         w->load_drill(args[1]);
+                    else if (args[0] == "mill")
+                        w->load_mill(args[1]);
                     else
-                        std::cerr << "Unknown entity '" << args[0] << "'" << std::endl;
+                        std::cerr << "Unknown layer '" << args[0] << "'" << std::endl;
+
+                } else if (cmd == "mirror") {
+                    w->mirror();
+                    std::cout << "Mirror ON" << std::endl;
                 } else if (cmd == "orient") {
-                    w->set_orientation();
+                    w->set_orientation(args.empty() ? 0 : lexical_cast<double>(args[0]) * M_PI / 180);
                     std::cerr << "Orientation: " << w->orientation() << std::endl;
                 } else if (cmd == "drillrefs") {
                     w->drill_reference_holes();
                 } else if (cmd == "userefs") {
                     w->use_reference_holes();
                     std::cerr << "Orientation: " << w->orientation() << std::endl;
+
                 } else if (cmd == "drill") {
                     w->drill();
+                } else if (cmd == "mill") {
+                    w->mill();
+                } else if (cmd == "cut") {
+                    w->cut();
+                } else if (cmd == "resume") {
+                    w->resume();
+
+                } else if (cmd == "dump" && args.size() == 2) {
+                    if (args[0] == "mill")
+                        w->dump_mill(args[1]);
+                    else
+                        std::cerr << "unknown layer '" << args[0] << "'" << std::endl;
+                    
+                } else if (cmd == "hmap" && !args.empty()) {
+                    if (args[0] == "scan")
+                        w->scan_height_map();
+                    else if (args[0] == "load" && args.size() >= 2)
+                        w->load_height_map(args[1]);
+                    else if (args[0] == "save" && args.size() >= 2)
+                        w->save_height_map(args[1]);
+                    else
+                        std::cerr << "unknown subcommand 'hmap " << args[0] << "'" << std::endl;
                     
                 } else if (cmd == "status") {
                     
                     std::cout << "position: " << cnc.position()
-                              << "; spindle: " << (cnc.is_spindle_on() ? "ON" : "off") << std::endl;
+                              << "; spindle: " << (cnc.is_spindle_on() ? "ON" : "off")
+                              << "; probe: " << (cnc.touches_ground() ? "YES": "no")
+                              << std::endl;
+
                 } else if (cmd == "spindle" && !args.empty()) {
                     
                     if (args[0] == "on")

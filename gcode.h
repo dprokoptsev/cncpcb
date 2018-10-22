@@ -26,9 +26,17 @@ public:
     
     const ::point& point() const { return pt_; }
     void set_point(const ::point& pt);    
-    gcmd xform_by(const orientation& o) const;
     
     friend std::ostream& operator << (std::ostream& s, const gcmd& c);
+    
+    template<class F>
+    gcmd xform_by(const F& xf) const
+    {
+        gcmd ret(*this);
+        if (pt_.defined())
+            ret.pt_ = xf(pt_);
+        return ret;
+    }
     
 private:
     std::string cmd_;
@@ -48,10 +56,16 @@ public:
     size_t size() const { return cmds_.size(); }
     const gcmd& operator[](size_t idx) const { return cmds_[idx]; }
     
-    void xform_by(const orientation& o);    
+    template<class F>
+    void xform_by(const F& xf)
+    {
+        for (gcmd& cmd: cmds_)
+            cmd = cmd.xform_by(xf);
+    }
+    
     void send_to(cnc_machine& cnc, const std::string& prompt = std::string());
     
-    std::pair<point, point> bounding_box() const;
+    ::bounding_box bounding_box() const;
     
 private:
     enum gcmd_classification { USE, IGNORE, ERROR };
@@ -60,4 +74,5 @@ private:
     
 private:
     std::vector<gcmd> cmds_;
+    ssize_t resume_point_ = 0;
 };

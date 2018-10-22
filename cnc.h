@@ -17,6 +17,8 @@ public:
     
     void reset();
     
+    void wait();
+    
     point position();
     void redefine_position(point newpos);
     void set_zero() { redefine_position({ 0, 0, 0 }); }
@@ -24,6 +26,9 @@ public:
     void move_xy(point p, move_mode m = move_mode::safe);
     void move_z(double z, move_mode m = move_mode::safe);
     double probe();
+    double high_precision_probe();
+    
+    bool touches_ground();
     
     void feed_z(double z);
 
@@ -52,5 +57,7 @@ private /*fields*/:
     double feed_rate_;
     double spindle_speed_;
     bool spindle_on_ = false;
+    bool touches_ground_ = false;
+    bool idle_ = true;
 };
 

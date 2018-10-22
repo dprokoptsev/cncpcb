@@ -54,3 +54,16 @@ TEST_CASE("orientation", "[geometry][xform]")
     CHECK(r({10, 5, 0}) == approx(point(0, 0, 0)));
     CHECK(r({10+sqrt(2), 5+sqrt(2), 0}) == approx(point(-2, 0, 0)));
 }
+
+TEST_CASE("bbox", "[geometry]")
+{
+    bounding_box b;
+    b.extend({ 10, 20, 0 });
+    b.extend({ 5, 25, 0 });
+    b.extend({ 8, 30, 0 });
+    
+    CHECK(b.bottom_left() == approx(point(5, 20, 0)));
+    CHECK(b.bottom_right() == approx(point(10, 20, 0)));
+    CHECK(b.top_left() == approx(point(5, 30, 0)));
+    CHECK(b.top_right() == approx(point(10, 30, 0)));
+}

@@ -123,6 +123,49 @@ public:
     
     vector to_vector() const { return *this - point(0, 0, 0); }
     static point from_vector(const vector& v) { return point(0, 0, 0) + v; }
+
+    point project_xy() const { return { x, y, 0 }; }
+};
+
+
+class bounding_box {
+public:
+    bounding_box() { min_.z = max_.z = 0; }
+    
+    bounding_box(const point& a, const point& b): bounding_box() { extend(a); extend(b); }
+    
+    void extend(const point& pt)
+    {
+        if (std::isnan(min_.x) || min_.x > pt.x)
+            min_.x = pt.x;
+        if (std::isnan(min_.y) || min_.y > pt.y)
+            min_.y = pt.y;
+        if (std::isnan(max_.x) || max_.x < pt.x)
+            max_.x = pt.x;
+        if (std::isnan(max_.y) || max_.y < pt.y)
+            max_.y = pt.y;
+    }
+    
+    point bottom_left() const { return min_; }
+    point bottom_right() const { return { max_.x, min_.y, 0 }; }
+    point top_left() const { return { min_.x, max_.y, 0 }; }
+    point top_right() const { return max_; }
+    
+    point center() const { return min_ + (max_ - min_) / 2; }
+    
+    vector size() const { return max_ - min_; }
+    
+    bool contains(const point& pt) const
+    {
+        return pt.x >= min_.x && pt.y >= min_.y
+            && pt.x <= max_.x && pt.y <= max_.y;
+    }
+    
+    bool contains(const bounding_box& other) const { return contains(other.min_) && contains(other.max_); }
+
+private:
+    point min_;
+    point max_;
 };
 
 
@@ -134,9 +177,16 @@ public:
     {}
     static orientation reconstruct(const std::vector<point>& orig, const std::vector<point>& xformed);
     
+    void set_hmirror(double hmirror) { hmirror_ = hmirror; }
+    
     bool defined() const { return gcode_zero_.defined() && cnc_zero_.defined() && rotation_.defined(); }
     
-    point operator()(const point& pt) const { return (pt - gcode_zero_).rotate(rotation_) + cnc_zero_; }
+    point operator()(point pt) const
+    {
+        if (!std::isnan(hmirror_))
+            pt.x = 2*hmirror_ - pt.x;
+        return (pt - gcode_zero_).rotate(rotation_) + cnc_zero_;
+    }
     
     friend std::ostream& operator << (std::ostream& s, const orientation& o)
     {
@@ -148,4 +198,7 @@ private:
     point gcode_zero_;
     point cnc_zero_;
     vector rotation_;
+    double hmirror_ = NAN;
 };
+
+

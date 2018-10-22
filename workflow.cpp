@@ -3,6 +3,7 @@
 #include "workflow.h"
 #include "gcode.h"
 #include "settings.h"
+#include "height_map.h"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -12,13 +13,12 @@ static std::vector<point> make_reference_points(const gcode& border)
 {
     static const double MARGIN = 3.0;
     auto bbox = border.bounding_box();
-    point min = bbox.first, max = bbox.second;
     
     std::vector<point> ret;
-    ret.push_back({ min.x - MARGIN, min.y, 0 });
-    ret.push_back({ min.x, max.y + MARGIN, 0 });
-    ret.push_back({ max.x, max.y + MARGIN, 0 });
-    ret.push_back({ max.x + MARGIN, min.y, 0 });
+    ret.push_back(bbox.bottom_left() - vector::axis::x(MARGIN));
+    ret.push_back(bbox.top_left() + vector::axis::y(MARGIN));
+    ret.push_back(bbox.top_right() + vector::axis::y(MARGIN));
+    ret.push_back(bbox.bottom_right() + vector::axis::x(MARGIN));
     
     return ret;
 }
@@ -33,6 +33,13 @@ static std::vector<std::string> reference_points_desc()
     };
 }
 
+void workflow::mirror()
+{
+    if (border_ || orient_.defined() || drill_ || mill_)
+        throw error("reset workflow first");
+    mirror_ = true;
+}
+
 
 void workflow::load_border(const std::string& filename)
 {
@@ -40,53 +47,47 @@ void workflow::load_border(const std::string& filename)
     border_.reset(new gcode(f));
 }
 
-void workflow::require_border()
+void workflow::require_border() const
 {
     if (!border_)
         throw error("border not loaded");
 }
 
-void workflow::require_orientation()
+void workflow::require_orientation() const
 {
     if (!orient_.defined())
         throw error("orientation not defined; run 'orient' or 'userefs'");
 }
 
-void workflow::load_drill(const std::string& filename)
+std::unique_ptr<gcode> workflow::load_gcode(const std::string& filename)
 {
     require_border();
     std::ifstream f(filename);
-    auto drill = std::make_unique<gcode>(f);
-    
-    auto bbox = drill->bounding_box();
-    auto border = border_->bounding_box();
-    if (bbox.first.x < border.first.x
-        || bbox.first.y < border.first.y
-        || bbox.second.x > border.second.x
-        || bbox.second.y > border.second.y
-    ) {
-        throw error("drill exceeds PCB border");
-    }
-    
-    drill_ = std::move(drill);
-}
+    auto g = std::make_unique<gcode>(f);
 
-void workflow::set_orientation()
+    if (!border_->bounding_box().contains(g->bounding_box()))
+        throw error("layer exceeds PCB border");
+
+    std::cerr << "Loaded " << filename << "; " << std::distance(g->begin(), g->end()) << " commands" << std::endl;
+    return g;
+}
+    
+void workflow::set_orientation(double angle_hint /* = 0 */)
 {
     require_border();
     ::orientation orient;    
 
-    auto bbox = border_->bounding_box();
-    vector size = bbox.second - bbox.first;
-    std::cout << "Size: " << size << std::endl;
-    vector v = size;
+    bounding_box bbox = border_->bounding_box();
+    std::cout << "Size: " << bbox.size() << std::endl;
+    vector v = bbox.size();
 
+    v = v.rotate(angle_hint);
     for (;;) {
-        point ll = interactive::position(cnc(), "Lower-left corner");
+        point ll = interactive::position(cnc(), "Bottom-left corner");
         ll.z = 0;
-        v = interactive::angle(cnc(), "Upper-right corner", ll, v);
+        v = interactive::angle(cnc(), "Top-right corner", ll, v);
 
-        orient = ::orientation(bbox.first, ll, vector::axis::x().rotate(size.angle_to(v)));
+        orient = ::orientation(bbox.bottom_left(), ll, vector::axis::x().rotate(bbox.size().angle_to(v)));
         std::cout << "Orientation: " << orient << std::endl;
 
         std::vector<point> refpts = make_reference_points(*border_);
@@ -110,6 +111,8 @@ void workflow::set_orientation()
         cnc().move_xy(ll);
     }
     
+    if (mirror_)
+        orient.set_hmirror(bbox.center().x);
     orient_ = std::move(orient);
 }
 
@@ -162,6 +165,8 @@ void workflow::use_reference_holes()
             refpts.points().push_back(o(pt));
         
         if (!refpts.edit("Reposition reference points")) {
+            if (mirror_)
+                o.set_hmirror(border_->bounding_box().center().x);
             orient_ = o;
             break;
         }
@@ -176,8 +181,125 @@ void workflow::drill()
     if (!drill_)
         throw error("load drill gcode first");
     
-    gcode d(*drill_);
-    d.xform_by(orient_);
+    auto c = std::make_unique<gcode>(*drill_);
+    c->xform_by(orient_);
+
+    current_ = std::move(c);
+    current_->send_to(cnc(), "Drilling");
+    current_.reset();
+}
+
+void workflow::mill()
+{
+    require_border();
+    require_orientation();
+    if (!height_map_)
+        throw error("height map not loaded; use 'hmap scan' or 'hmap load'");
     
-    d.send_to(cnc(), "Drilling");
+    auto c = std::make_unique<gcode>(*mill_);
+    c->xform_by(*height_map_);
+    c->xform_by(orient_);
+    
+    current_ = std::move(c);
+    current_->send_to(cnc(), "Milling");
+    current_.reset();
+}
+
+void workflow::cut()
+{
+    require_border();
+    require_orientation();
+    
+    auto c = std::make_unique<gcode>(*border_);
+    c->xform_by(orient_);
+
+    current_ = std::move(c);
+    current_->send_to(cnc(), "Cutting");
+    current_.reset();
+}
+
+void workflow::resume()
+{
+    if (current_)
+        current_->send_to(cnc(), "Working");
+    current_.reset();
+}
+
+void workflow::dump_layer(const gcode* gc, const std::string& filename) const
+{
+    require_border();
+    require_orientation();
+    if (!gc)
+        throw error("layer not loaded");
+    
+    gcode tmp(*gc);
+    if (height_map_)
+        tmp.xform_by(*height_map_);
+    tmp.xform_by(orient_);
+    
+    std::ofstream f(filename);
+    for (const gcmd& cmd: tmp)
+        f << cmd << "\n";
+    
+    std::cerr << "Layer saved to " << filename << std::endl;
+}
+
+std::vector<point> workflow::holes() const
+{
+    if (!drill_)
+        throw error("drill hot loaded");
+    
+    std::vector<point> ret;
+    for (const auto& cmd: *drill_) {
+        if (cmd.equals('G', 1) && cmd.point().z < 0)
+            ret.push_back({ cmd.point().x, cmd.point().y, 0 });
+    }
+    return ret;
+}
+
+void workflow::scan_height_map()
+{
+    require_border();
+    require_orientation();
+    
+    auto h = std::make_unique<height_map>(border_->bounding_box(), holes());
+    
+    interactive::change_tool(cnc(), "Change tool to engraving bit");
+    
+    interactive::progress_bar progress("Scanning height map", std::distance(h->begin(), h->end()));
+    
+    double travel_z = settings::MILL.travel_z;
+    cnc().move_z(travel_z);
+    for (point& pt: *h) {
+        cnc().move_xy(orient_(pt));
+        pt.z = cnc().high_precision_probe();
+        cnc().move_z(travel_z);
+        progress.increment();
+    }
+    
+    height_map_ = std::move(h);
+    std::cerr << std::endl;
+}
+
+void workflow::load_height_map(const std::string& filename)
+{
+    require_border();
+    
+    std::ifstream f(filename);
+    auto h = std::make_unique<height_map>(f);
+
+    auto d = h->bounding_box().size() - border_->bounding_box().size();
+    if (d.length() > 1e-3)
+        throw std::runtime_error("height map size mismatch");
+
+    height_map_ = std::move(h);
+}
+
+void workflow::save_height_map(const std::string& filename) const
+{
+    if (!height_map_)
+        throw std::runtime_error("height map not initialized");
+
+    std::ofstream f(filename);
+    height_map_->save(f);
 }

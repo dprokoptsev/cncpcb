@@ -52,6 +52,21 @@ std::vector<T> split(const std::string& s, const std::string& sep)
     return ret;
 }
 
+template<class T>
+std::string join(const T& container, const std::string& separator = "")
+{
+    std::ostringstream s;
+    bool first = true;
+    for (const auto& t: container) {
+        if (first)
+            first = false;
+        else
+            s << separator;
+        s << t;
+    }
+    return s.str();
+}
+
 
 template<class F, class... Args>
 decltype(std::declval<F>()(std::declval<Args>()...))
