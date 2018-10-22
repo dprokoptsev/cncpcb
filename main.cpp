@@ -115,6 +115,9 @@ int main(int argc, char** argv)
                     w->drill();
                 } else if (cmd == "mill") {
                     w->mill();
+                } else if (cmd == "hmap+mill") {
+                    w->scan_height_map();
+                    w->mill();
                 } else if (cmd == "cut") {
                     w->cut();
                 } else if (cmd == "resume") {

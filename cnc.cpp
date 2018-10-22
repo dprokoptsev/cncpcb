@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <vector>
 #include <utility>
+#include <algorithm>
 
 #include <unistd.h>
 
@@ -46,8 +47,12 @@ void cnc_machine::get_status()
     std::string status;
     while (status.empty()) {
         auto st = talk("?");
-        if (!st.empty())
-            status = st[0];            
+        auto i = std::find_if(
+            st.begin(), st.end(),
+            [](const std::string& s) { return !s.empty() && s[0] == '<'; }
+        );
+        if (i != st.end())
+            status = i->substr(1);
     }
 
     point wpos;
@@ -155,6 +160,7 @@ double cnc_machine::probe()
 {
     position_ = point();
     talk("G38.2 F15 Z-50");
+    wait();
     return position().z;
 }
 
@@ -270,9 +276,9 @@ std::vector<std::string> cnc_machine::talk(const std::string& cmd)
         } else if (starts_with(line, "ALARM:")) {
             throw grbl_alarm(lexical_cast<int>(line.substr(6)));
         } else if (line.size() >= 2 && line[0] == '<' && line[line.size() - 1] == '>') {
-            resp.push_back(line.substr(1, line.size() - 2));
+            resp.push_back(line.substr(0, line.size() - 1));
         } else if (line.size() >= 2 && line[0] == '[' && line[line.size() - 1] == ']') {
-            resp.push_back(line.substr(1, line.size() - 2));
+            resp.push_back(line.substr(0, line.size() - 1));
         } else {
             continue;
         }

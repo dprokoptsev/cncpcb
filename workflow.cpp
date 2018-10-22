@@ -210,6 +210,8 @@ void workflow::cut()
     require_border();
     require_orientation();
     
+    interactive::change_tool(cnc(), "Change tool to cutting bit");
+    
     auto c = std::make_unique<gcode>(*border_);
     c->xform_by(orient_);
 
