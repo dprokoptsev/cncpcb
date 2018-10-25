@@ -185,4 +185,6 @@ void gcode::send_to(cnc_machine& cnc, const std::string& prompt)
 
         progress.increment();
     }
+    
+    std::cerr << std::endl;
 }

@@ -106,10 +106,23 @@ int main(int argc, char** argv)
                     w->set_orientation(args.empty() ? 0 : lexical_cast<double>(args[0]) * M_PI / 180);
                     std::cerr << "Orientation: " << w->orientation() << std::endl;
                 } else if (cmd == "drillrefs") {
-                    w->drill_reference_holes();
+                    w->drill_reference_points();
                 } else if (cmd == "userefs") {
-                    w->use_reference_holes();
+                    w->use_reference_points();
                     std::cerr << "Orientation: " << w->orientation() << std::endl;
+                    
+                } else if (cmd == "show" && !args.empty()) {
+                    auto xform = [&w](const std::vector<point>& pts) {
+                        std::vector<point> xf;
+                        std::transform(pts.begin(), pts.end(), std::back_inserter(xf), w->orientation());
+                        return xf;
+                    };
+                    if (args[0] == "refpts")
+                        interactive::point_list(cnc, xform(w->reference_points())).show("Reference points");
+                    else if (args[0] == "drills")
+                        interactive::point_list(cnc, xform(w->drills())).show("Drills");
+                    else
+                        std::cerr << "Unknown layer " << args[0] << std::endl;
 
                 } else if (cmd == "drill") {
                     w->drill();

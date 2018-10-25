@@ -25,8 +25,8 @@ public:
     
     const ::orientation& orientation() const { return orient_; }
     void set_orientation(double angle_hint = 0);
-    void drill_reference_holes();
-    void use_reference_holes();
+    void drill_reference_points();
+    void use_reference_points();
     
     void scan_height_map();
     void save_height_map(const std::string& filename) const;
@@ -40,6 +40,9 @@ public:
     
     void dump_mill(const std::string& out) const { dump_layer(mill_.get(), out); }
 
+    std::vector<point> reference_points() const;
+    std::vector<point> drills() const;
+
 private:
     cnc_machine& cnc() { return *cnc_; }
     void require_border() const;
@@ -47,9 +50,7 @@ private:
     
     std::unique_ptr<gcode> load_gcode(const std::string& filename);
     void dump_layer(const gcode* gc, const std::string& out) const;
-    
-    std::vector<point> holes() const;
-    
+        
 private:
     cnc_machine* cnc_;
     std::unique_ptr<gcode> border_;

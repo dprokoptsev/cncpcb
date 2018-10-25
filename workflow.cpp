@@ -45,6 +45,7 @@ void workflow::load_border(const std::string& filename)
 {
     std::ifstream f(filename);
     border_.reset(new gcode(f));
+    std::cerr << "Loaded " << filename << "; board size = " << border_->bounding_box().size() << std::endl;
 }
 
 void workflow::require_border() const
@@ -104,7 +105,7 @@ void workflow::set_orientation(double angle_hint /* = 0 */)
         );
         if (
             interactive::point_list(cnc(), refpts, reference_points_desc())
-            .show("Reference holes", nearest) != -1
+            .show("Reference points", nearest) != -1
         )
             break;
 
@@ -117,7 +118,7 @@ void workflow::set_orientation(double angle_hint /* = 0 */)
 }
 
 
-void workflow::drill_reference_holes()
+void workflow::drill_reference_points()
 {
     require_border();
     require_orientation();
@@ -144,7 +145,7 @@ void workflow::drill_reference_holes()
 }
 
 
-void workflow::use_reference_holes()
+void workflow::use_reference_points()
 {
     if (!border_)
         throw error("border not loaded");
@@ -152,7 +153,7 @@ void workflow::use_reference_holes()
     std::vector<point> origpts = make_reference_points(*border_);
     
     interactive::point_list refpts(cnc(), reference_points_desc());
-    refpts.read("Position reference holes", origpts.size());
+    refpts.read("Position reference points", origpts.size());
     
     for (;;) {
         for (point& pt: refpts.points())
@@ -246,10 +247,16 @@ void workflow::dump_layer(const gcode* gc, const std::string& filename) const
     std::cerr << "Layer saved to " << filename << std::endl;
 }
 
-std::vector<point> workflow::holes() const
+std::vector<point> workflow::reference_points() const
+{
+    require_border();
+    return make_reference_points(*border_);
+}
+
+std::vector<point> workflow::drills() const
 {
     if (!drill_)
-        throw error("drill hot loaded");
+        throw error("drill not loaded");
     
     std::vector<point> ret;
     for (const auto& cmd: *drill_) {
@@ -264,7 +271,7 @@ void workflow::scan_height_map()
     require_border();
     require_orientation();
     
-    auto h = std::make_unique<height_map>(border_->bounding_box(), holes());
+    auto h = std::make_unique<height_map>(border_->bounding_box(), drills());
     
     interactive::change_tool(cnc(), "Change tool to engraving bit");
     
