@@ -253,15 +253,21 @@ std::vector<point> workflow::reference_points() const
     return make_reference_points(*border_);
 }
 
-std::vector<point> workflow::drills() const
+std::vector<circular_area> workflow::drills() const
 {
     if (!drill_)
         throw error("drill not loaded");
     
-    std::vector<point> ret;
+    static const std::string PROMPT = "Change to tool dia=";
+    double dia = 0.6;
+    
+    std::vector<circular_area> ret;
     for (const auto& cmd: *drill_) {
-        if (cmd.equals('G', 1) && cmd.point().z < 0)
-            ret.push_back({ cmd.point().x, cmd.point().y, 0 });
+        if (cmd.equals('G', 1) && cmd.point().z < 0) {
+            ret.push_back({{ cmd.point().x, cmd.point().y, 0 }, dia / 2});
+        } else if (cmd.letter() == '*' && starts_with(cmd.str_arg(), PROMPT)) {
+            dia = lexical_cast<double>(cmd.str_arg().substr(PROMPT.size()));
+        }
     }
     return ret;
 }

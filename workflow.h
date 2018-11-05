@@ -1,5 +1,6 @@
 #pragma once
 
+#include "utility.h"
 #include "gcode.h"
 #include "height_map.h"
 #include <string>
@@ -41,7 +42,12 @@ public:
     void dump_mill(const std::string& out) const { dump_layer(mill_.get(), out); }
 
     std::vector<point> reference_points() const;
-    std::vector<point> drills() const;
+    std::vector<circular_area> drills() const;
+
+for_testing_only:
+    workflow(): cnc_(0) {}
+    void set_border(std::unique_ptr<gcode> gcode) { border_ = std::move(gcode); }
+    void set_drill(std::unique_ptr<gcode> drill) { drill_ = std::move(drill); }
 
 private:
     cnc_machine& cnc() { return *cnc_; }

@@ -4,15 +4,20 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
-
+#include <random>
 
 class height_map {
 public:
-    explicit height_map(const bounding_box& bbox, const std::vector<point>& avoid): bbox_(bbox)
+    explicit height_map(const bounding_box& bbox, const std::vector<circular_area>& avoid): bbox_(bbox)
     {
         static const double SUGGESTED_CELL_SIZE = 10;
+        static const double SAFETY_MARGIN = 0.2;
         cell_count_x_ = unsigned(ceil(bbox.size().x / SUGGESTED_CELL_SIZE));
         cell_count_y_ = unsigned(ceil(bbox.size().y / SUGGESTED_CELL_SIZE));
+        
+        std::mt19937 rand;
+        rand.seed(1);
+        std::uniform_real_distribution<double> rand_angle(0, 2*M_PI);
         
         for (size_t y = 0; y != cell_count_y_ + 1; ++y) {
             for (size_t x = 0; x != cell_count_x_ + 1; ++x) {
@@ -20,13 +25,17 @@ public:
                 
                 point shifted_pt = pt;
                 for (;;) {
-                    if (std::none_of(
+                    auto closest = std::min_element(
                         avoid.begin(), avoid.end(),
-                        [&shifted_pt](const point& a) { return shifted_pt.distance_to(a) < 0.7; }
-                    ))
+                        [&shifted_pt](const circular_area& a, const circular_area& b) {
+                            return a.distance_to(shifted_pt) < b.distance_to(shifted_pt);
+                        }
+                    );
+                    
+                    if (closest == avoid.end() || closest->distance_to(shifted_pt) > SAFETY_MARGIN)
                         break;
                     
-                    shifted_pt = pt + vector::axis::x(0.75).rotate(rand() * M_PI*2/RAND_MAX);
+                    shifted_pt = pt + vector::axis::x(closest->radius + SAFETY_MARGIN + 0.05).rotate(rand_angle(rand));
                 }
                 
                 shifted_pt.z = std::numeric_limits<double>::quiet_NaN();

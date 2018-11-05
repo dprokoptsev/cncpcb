@@ -168,6 +168,14 @@ private:
     point max_;
 };
 
+class circular_area {
+public:
+    point center;
+    double radius;
+    
+    double distance_to(const point& pt) const { return std::max(pt.distance_to(center) - radius, 0.0); }
+};
+
 
 class orientation {
 public:

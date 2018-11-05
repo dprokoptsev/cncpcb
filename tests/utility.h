@@ -1,8 +1,10 @@
 #pragma once
 
+#include "../geom.h"
 #include <iostream>
 #include <limits>
 #include <cmath>
+
 
 double deg(double x) { return x*M_PI/180; }
 

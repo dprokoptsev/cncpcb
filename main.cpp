@@ -117,12 +117,19 @@ int main(int argc, char** argv)
                         std::transform(pts.begin(), pts.end(), std::back_inserter(xf), w->orientation());
                         return xf;
                     };
-                    if (args[0] == "refpts")
+                    if (args[0] == "refpts") {
                         interactive::point_list(cnc, xform(w->reference_points())).show("Reference points");
-                    else if (args[0] == "drills")
-                        interactive::point_list(cnc, xform(w->drills())).show("Drills");
-                    else
+                    } else if (args[0] == "drills") {
+                        std::vector<point> pts;
+                        std::vector<std::string> dias;
+                        for (const auto& d: w->drills()) {
+                            pts.push_back(d.center);
+                            dias.push_back("dia=" + std::to_string(d.radius * 2));
+                        }
+                        interactive::point_list(cnc, xform(pts), dias).show("Drills");
+                    } else {
                         std::cerr << "Unknown layer " << args[0] << std::endl;
+                    }
 
                 } else if (cmd == "drill") {
                     w->drill();

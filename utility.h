@@ -7,6 +7,12 @@
 #include <cstring>
 #include <sstream>
 
+#ifdef IN_TESTS
+# define  for_testing_only public
+#else
+# define for_testing_only private
+#endif
+
 inline bool starts_with(const std::string& s, const std::string& prefix)
 {
     return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
