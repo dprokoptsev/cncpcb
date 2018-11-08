@@ -56,8 +56,13 @@ int main(int argc, char** argv)
         
         serial_port tty(argv[optind]);
         cnc_machine cnc(tty);
-        std::unique_ptr<workflow> w(new workflow(cnc));
         
+        std::map<std::string, std::unique_ptr<workflow>> workflows;
+        workflows["default"] = std::make_unique<workflow>(cnc);
+        
+        std::unique_ptr<workflow>* wh = &workflows["default"];
+        workflow* w = wh->get();
+
         std::string cmd;
         while (readline("> ", cmd)) {
             auto args = split<std::string>(cmd, " ");
@@ -67,10 +72,15 @@ int main(int argc, char** argv)
             try {
             
                 if (cmd == "reset") {
-                    if (args.empty() || args[0] == "cnc")
+                    if (args.empty() || args[0] == "cnc") {
                         cnc.reset();
-                    if (args.empty() || args[0] == "workflow")
-                        w.reset(new workflow(cnc));
+                    } else if (args.empty() || args[0] == "workflow") {
+                        wh->reset(new workflow(cnc));
+                        w = wh->get();
+                        std::cerr << "workflow reset" << std::endl;
+                    } else {
+                        std::cerr << "unknown entity" << std::endl;
+                    }
                 } else if (cmd == "pos") {
                     std::cout << cnc.position() << std::endl;
                 } else if (cmd == "setzero") {
@@ -177,8 +187,21 @@ int main(int argc, char** argv)
                     
                     interactive::change_tool(cnc, args.empty() ? std::string() : args[0]);
                     
+                } else if (cmd == "set" && args.size() == 2) {
+                    if (args[0] == "workflow") {
+                        wh = &workflows[args[1]];
+                        if (!*wh)
+                            *wh = std::make_unique<workflow>(cnc);
+                        w = wh->get();
+                        std::cerr << "switched to workflow " << args[1] << std::endl;
+                    } else if (args[0] == "z_adjust") {
+                        w->adjust_z(lexical_cast<double>(args[1]));
+                    } else {
+                        std::cerr << "unknown parameter" << std::endl;
+                    }
+                    
                 } else {
-                    std::cout << "unknown command" << std::endl;
+                    std::cerr << "unknown command" << std::endl;
                 }
                 
             }

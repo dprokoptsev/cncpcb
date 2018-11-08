@@ -64,7 +64,7 @@ G0 Z1
     w.set_drill(parse(DRILL));
     
     std::vector<circular_area> drills = w.drills();
-    CHECK(drills.size() == 4);
+    CHECK(drills.size() >= 4);
     
     CHECK(drills[0].center == approx(point(2, 2, 0)));
     CHECK(drills[0].radius == approx(0.2));

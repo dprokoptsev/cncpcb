@@ -63,6 +63,8 @@ public:
             cmd = cmd.xform_by(xf);
     }
     
+    void break_long_legs();
+    
     void send_to(cnc_machine& cnc, const std::string& prompt = std::string());
     
     ::bounding_box bounding_box() const;

@@ -139,6 +139,18 @@ static double g_feed_z = 0.5;
 static double g_feed_angle = 5;
 
 
+void toggle_spindle(cnc_machine& cnc)
+{
+    if (cnc.is_spindle_on()) {
+        cnc.set_spindle_off();
+    } else {
+        if (cnc.position().z < 1)
+            cnc.move_z(1);
+        cnc.set_spindle_on();
+    }
+}
+
+
 class z_handler {
 public:
     explicit z_handler(cnc_machine& cnc, cnc_machine::move_mode mode = cnc_machine::move_mode::safe):
@@ -228,6 +240,8 @@ point position(cnc_machine& cnc, const std::string& prompt, cnc_machine::move_mo
         
         if (handle_xy(cnc, k, mode) || zh.handle_keypress(k)) {
             continue;
+        } else if (k == key::space) {
+            toggle_spindle(cnc);
         } else if (k == key::enter) {
             clear_line();
             return cnc.position();
@@ -355,7 +369,6 @@ void point_list::read(const std::string& prompt, size_t count)
     pts_ = std::move(ret);
 }
 
-
 void change_tool(cnc_machine& cnc, const std::string& prompt)
 {
     std::string msg = (prompt.empty() ? "Change tool" : prompt);
@@ -368,14 +381,7 @@ void change_tool(cnc_machine& cnc, const std::string& prompt)
         key k = raw.getkey();
         
         if (k == key::space) {
-            if (cnc.is_spindle_on()) {
-                cnc.set_spindle_off();
-            } else {
-                if (cnc.position().z < 1)
-                    cnc.move_z(1);
-                cnc.set_spindle_on();
-            }
-
+            toggle_spindle(cnc);
         } else if (!cnc.is_spindle_on() && handle_xy(cnc, k)) {
             continue;
         } else if (!cnc.is_spindle_on() && zh.handle_keypress(k)) {

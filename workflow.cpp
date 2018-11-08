@@ -11,14 +11,15 @@
 
 static std::vector<point> make_reference_points(const gcode& border)
 {
-    static const double MARGIN = 3.0;
+    static const double MARGIN = 1.5;
+    static const double SHIFT = 10;
     auto bbox = border.bounding_box();
     
     std::vector<point> ret;
-    ret.push_back(bbox.bottom_left() - vector::axis::x(MARGIN));
-    ret.push_back(bbox.top_left() + vector::axis::y(MARGIN));
-    ret.push_back(bbox.top_right() + vector::axis::y(MARGIN));
-    ret.push_back(bbox.bottom_right() + vector::axis::x(MARGIN));
+    ret.push_back(bbox.bottom_left() + vector(-MARGIN, SHIFT, 0));
+    ret.push_back(bbox.top_left() + vector(SHIFT, MARGIN, 0));
+    ret.push_back(bbox.top_right() + vector(-SHIFT, MARGIN, 0));
+    ret.push_back(bbox.bottom_right() + vector(MARGIN, SHIFT, 0));
     
     return ret;
 }
@@ -91,20 +92,30 @@ void workflow::set_orientation(double angle_hint /* = 0 */)
         orient = ::orientation(bbox.bottom_left(), ll, vector::axis::x().rotate(bbox.size().angle_to(v)));
         std::cout << "Orientation: " << orient << std::endl;
 
-        std::vector<point> refpts = make_reference_points(*border_);
-        assert(!refpts.empty());
-        std::transform(refpts.begin(), refpts.end(), refpts.begin(), orient);
+        std::vector<point> pts = make_reference_points(*border_);
+        std::vector<std::string> desc = reference_points_desc();
+        assert(!pts.empty());
+        
+        pts.push_back(bbox.bottom_left());
+        pts.push_back(bbox.top_left());
+        pts.push_back(bbox.top_right());
+        pts.push_back(bbox.bottom_right());
+        for (size_t i = 0; i != 4; ++i)
+            desc.push_back("Corner");
+        
+        std::transform(pts.begin(), pts.end(), pts.begin(), orient);
         
         size_t nearest = std::distance(
-            refpts.begin(), std::min_element(
-                refpts.begin(), refpts.end(),
+            pts.begin(), std::min_element(
+                pts.begin(), pts.end(),
                 [this](point a, point b) {
                     return cnc().position().distance_to(a) < cnc().position().distance_to(b);
                 }
             )
         );
+
         if (
-            interactive::point_list(cnc(), refpts, reference_points_desc())
+            interactive::point_list(cnc(), pts, desc)
             .show("Reference points", nearest) != -1
         )
             break;
@@ -174,36 +185,38 @@ void workflow::use_reference_points()
     }
 }
 
-
-void workflow::drill()
+void workflow::run(const std::string& prompt, const gcode& gc)
 {
     require_border();
     require_orientation();
+    auto c = std::make_unique<gcode>(gc);
+    c->break_long_legs();
+    if (height_map_)
+        c->xform_by(*height_map_);
+    c->xform_by(orient_);
+    c->xform_by([this](const point& pt) { return pt + vector::axis::z(z_adjustment_); });
+    
+    current_ = std::move(c);
+    current_->send_to(cnc(), prompt);
+    current_.reset();
+}
+
+
+void workflow::drill()
+{
     if (!drill_)
         throw error("load drill gcode first");
-    
-    auto c = std::make_unique<gcode>(*drill_);
-    c->xform_by(orient_);
-
-    current_ = std::move(c);
-    current_->send_to(cnc(), "Drilling");
-    current_.reset();
+    run("Drilling", *drill_);
 }
 
 void workflow::mill()
 {
-    require_border();
-    require_orientation();
+    if (!mill_)
+        throw error("load mill gcode first");
     if (!height_map_)
         throw error("height map not loaded; use 'hmap scan' or 'hmap load'");
     
-    auto c = std::make_unique<gcode>(*mill_);
-    c->xform_by(*height_map_);
-    c->xform_by(orient_);
-    
-    current_ = std::move(c);
-    current_->send_to(cnc(), "Milling");
-    current_.reset();
+    run("Milling", *mill_);
 }
 
 void workflow::cut()
@@ -212,13 +225,7 @@ void workflow::cut()
     require_orientation();
     
     interactive::change_tool(cnc(), "Change tool to cutting bit");
-    
-    auto c = std::make_unique<gcode>(*border_);
-    c->xform_by(orient_);
-
-    current_ = std::move(c);
-    current_->send_to(cnc(), "Cutting");
-    current_.reset();
+    run("Cutting", *border_);
 }
 
 void workflow::resume()
@@ -255,6 +262,7 @@ std::vector<point> workflow::reference_points() const
 
 std::vector<circular_area> workflow::drills() const
 {
+    require_border();
     if (!drill_)
         throw error("drill not loaded");
     
@@ -269,6 +277,10 @@ std::vector<circular_area> workflow::drills() const
             dia = lexical_cast<double>(cmd.str_arg().substr(PROMPT.size()));
         }
     }
+    
+    for (const auto& pt: make_reference_points(*border_))
+        ret.push_back({ pt, 0.25 });
+
     return ret;
 }
 

@@ -100,6 +100,38 @@ gcode::gcode(std::istream& s)
     }
 }
 
+void gcode::break_long_legs()
+{
+    double MAX_LEG_LENGTH = 2.0 /*mm*/;
+
+    std::vector<gcmd> newcmds;    
+    auto i = cmds_.begin(), ie = cmds_.end();
+    
+    for (; i != ie && !i->point().defined(); ++i)
+        newcmds.push_back(*i);
+
+    if (i == ie)
+        return;
+    point current_position = i->point();
+    newcmds.push_back(*i++);
+    
+    for (; i != ie; ++i) {
+        if (i->equals('G', 1)) {
+            vector v = i->point() - current_position;
+            for (size_t step = 1; v.length() > step * MAX_LEG_LENGTH; ++step) {
+                gcmd intermediate(*i);
+                intermediate.set_point(current_position + step*MAX_LEG_LENGTH*v.unit());
+                newcmds.push_back(intermediate);
+            }
+        }
+        
+        newcmds.push_back(*i);
+        if (i->point().defined())
+            current_position = i->point();
+    }
+    
+    cmds_ = std::move(newcmds);
+}
 
 ::bounding_box gcode::bounding_box() const
 {

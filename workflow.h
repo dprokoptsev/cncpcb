@@ -33,6 +33,8 @@ public:
     void save_height_map(const std::string& filename) const;
     void load_height_map(const std::string& filename);
     
+    void adjust_z(double adj) { z_adjustment_ = adj; }
+    
     void drill();
     void mill();
     void cut();
@@ -56,12 +58,15 @@ private:
     
     std::unique_ptr<gcode> load_gcode(const std::string& filename);
     void dump_layer(const gcode* gc, const std::string& out) const;
+    
+    void run(const std::string& prompt, const gcode& gc);
         
 private:
     cnc_machine* cnc_;
     std::unique_ptr<gcode> border_;
     ::orientation orient_;
     std::unique_ptr<height_map> height_map_;
+    double z_adjustment_ = 0;
     
     std::unique_ptr<gcode> drill_;
     std::unique_ptr<gcode> mill_;
