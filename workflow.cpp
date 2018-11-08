@@ -299,7 +299,7 @@ void workflow::scan_height_map()
     cnc().move_z(travel_z);
     for (point& pt: *h) {
         cnc().move_xy(orient_(pt));
-        pt.z = cnc().high_precision_probe();
+        pt.z = cnc().probe();
         cnc().move_z(travel_z);
         progress.increment();
     }

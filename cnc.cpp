@@ -15,8 +15,17 @@
 #include <unistd.h>
 
 
-cnc_machine::cnc_machine(std::iostream& s): s_(&s)
+void cnc_machine::rebind(std::iostream& s)
 {
+    s_ = &s;
+
+    wco_ = vector();
+    position_ = point();
+    feed_rate_ = spindle_speed_ = 0;
+    spindle_on_ = false;
+    touches_ground_ = false;
+    idle_ = true;
+
     for (;;) {
         std::string line;
         if (!std::getline(*s_, line))
@@ -28,7 +37,7 @@ cnc_machine::cnc_machine(std::iostream& s): s_(&s)
     talk("?");
     talk("G21");
     talk("G90");
-    set_zero();
+    set_zero();    
 }
     
 void cnc_machine::reset()
@@ -107,19 +116,21 @@ void cnc_machine::wait()
     }
 }
 
-vector cnc_machine::wco()
+std::string cnc_machine::read_hash(const std::string& name, size_t index)
 {
-    if (wco_.defined())
-        return wco_;
-
     for (const std::string& line: talk("$#")) {
         auto fields = split<std::string>(line, ":");
-        if (fields.size() >= 2 && fields[0] == "G54") {
-            wco_ = vector(fields[1]);
-            return wco_;
-        }
+        if (fields.size() > index && fields[0] == name)
+            return fields[index];
     }
     throw grbl_error::protocol_violation();
+}
+
+vector cnc_machine::wco()
+{
+    if (!wco_.defined())
+        wco_ = vector(read_hash("[G54", 1));
+    return wco_;
 }
 
 void cnc_machine::redefine_position(point newpos)
@@ -161,7 +172,7 @@ double cnc_machine::probe()
     position_ = point();
     talk("G38.2 F15 Z-50");
     wait();
-    return position().z;
+    return (point(read_hash("[PRB", 1)) - wco()).z;
 }
 
 double cnc_machine::high_precision_probe()

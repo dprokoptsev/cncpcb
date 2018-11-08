@@ -13,7 +13,8 @@ class cnc_machine {
 public:
     enum class move_mode { safe, unsafe };
     
-    explicit cnc_machine(std::iostream& s);
+    explicit cnc_machine(std::iostream& s) { rebind(s); }
+    void rebind(std::iostream& s);
     
     void reset();
     
@@ -47,6 +48,8 @@ public:
 private /*methods*/:
     void get_status();
     vector wco();
+    
+    std::string read_hash(const std::string& name, size_t index);
         
 private /*fields*/:
     std::iostream* s_;
@@ -56,8 +59,8 @@ private /*fields*/:
     
     double feed_rate_;
     double spindle_speed_;
-    bool spindle_on_ = false;
-    bool touches_ground_ = false;
+    bool spindle_on_;
+    bool touches_ground_;
     bool idle_ = true;
 };
 

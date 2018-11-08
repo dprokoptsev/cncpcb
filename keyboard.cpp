@@ -156,29 +156,19 @@ public:
     explicit z_handler(cnc_machine& cnc, cnc_machine::move_mode mode = cnc_machine::move_mode::safe):
         cnc_(&cnc), mode_(mode)
     {}
-    
-    bool probed() const { return probed_; }
-    
+        
     bool handle_keypress(key k)
     {
         if (k == key::page_up) {
             cnc_->move_z(cnc_->position().z + g_feed_z, mode_);
-            probed_ = false;
         } else if (k == key::page_down) {
             cnc_->move_z(cnc_->position().z - g_feed_z, mode_);
-            probed_ = false;
         } else if (k == key::p || k == key::shift_p) {
             
             if (k == key::shift_p)
                 cnc_->high_precision_probe();
             else
                 cnc_->probe();
-            
-            probed_ = (cnc_->position().project_xy().distance_to({0, 0, 0}) < 2);
-            if (!probed_ && mode_ == cnc_machine::move_mode::safe) {
-                clear_line();
-                std::cerr << "Warning: only probing at (0,0) will have effect" << std::endl;
-            }
 
         } else if (k == key::multiplies) {
             g_feed_z *= FEED_RATE;
@@ -194,7 +184,6 @@ public:
 private:
     cnc_machine* cnc_;
     cnc_machine::move_mode mode_;
-    bool probed_ = false;
 };
 
 
@@ -387,18 +376,27 @@ void change_tool(cnc_machine& cnc, const std::string& prompt)
         } else if (!cnc.is_spindle_on() && zh.handle_keypress(k)) {
             continue;
         } else if (!cnc.is_spindle_on() && k == key::enter) {
-            if (!settings::g_params.require_z_level_at_tool_change || zh.probed()) {
+            if (
+                !settings::g_params.require_z_level_at_tool_change
+                || cnc.position().distance_to({0, 0, cnc.position().z}) < 2
+            ) {
                 clear_line();
                 break;
             } else {
                 clear_line();
-                std::cerr << "\rPlease probe Z at (0,0)\r\n";
+                std::cerr << "\rPlease reposition to (0,0) for further probing\r\n";
             }
         }
     }
     
     point p = cnc.position();
-    cnc.redefine_position({ p.x, p.y, 0 });
+    if (settings::g_params.require_z_level_at_tool_change) {
+        cnc.move_z(cnc.position().z + 1);
+        p.z = cnc.probe();
+    } else {
+        p.z = 0;
+    }
+    cnc.redefine_position(p);
     cnc.move_z(1);
 }
 

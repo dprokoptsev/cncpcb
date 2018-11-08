@@ -53,9 +53,11 @@ int main(int argc, char** argv)
         
         if (optind >= argc)
             usage();
+
+        std::string ttyname = argv[optind];
         
-        serial_port tty(argv[optind]);
-        cnc_machine cnc(tty);
+        auto tty = std::make_unique<serial_port>(ttyname);
+        cnc_machine cnc(*tty);
         
         std::map<std::string, std::unique_ptr<workflow>> workflows;
         workflows["default"] = std::make_unique<workflow>(cnc);
@@ -71,10 +73,14 @@ int main(int argc, char** argv)
             
             try {
             
-                if (cmd == "reset") {
-                    if (args.empty() || args[0] == "cnc") {
+                if (cmd == "reset" && !args.empty()) {
+                    if (args[0] == "cnc") {
                         cnc.reset();
-                    } else if (args.empty() || args[0] == "workflow") {
+                    } else if (args[0] == "tty") {
+                        tty.reset();
+                        tty = std::make_unique<serial_port>(ttyname);
+                        cnc.rebind(*tty);
+                    } else if (args[0] == "workflow") {
                         wh->reset(new workflow(cnc));
                         w = wh->get();
                         std::cerr << "workflow reset" << std::endl;
@@ -88,8 +94,16 @@ int main(int argc, char** argv)
                     cnc.set_zero();
                 } else if (cmd == "vi") {
                     interactive::position(cnc, "Interactive position");
+                } else if (cmd == "probe") {
+                    for (size_t i = 0; i != (args.empty() ? 1 : lexical_cast<size_t>(args[0])); ++i) {
+                        cnc.move_z(cnc.position().z + 0.5 + double(rand()) / RAND_MAX);
+                        std::cout << cnc.probe() << std::endl;
+                    }
                 } else if (cmd == "hprobe") {
-                    std::cout << cnc.high_precision_probe() << std::endl;
+                    for (size_t i = 0; i != (args.empty() ? 1 : lexical_cast<size_t>(args[0])); ++i) {
+                        cnc.move_z(cnc.position().z + 0.5 + double(rand()) / RAND_MAX);
+                        std::cout << cnc.high_precision_probe() << std::endl;
+                    }
                 } else if ((cmd == "gcode" || cmd == ".") && !args.empty()) {
                     bool dump = settings::g_params.dump_wire;
                     settings::g_params.dump_wire = true;
