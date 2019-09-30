@@ -140,16 +140,20 @@ void cnc_machine::redefine_position(point newpos)
     position_ = newpos;
 }
 
-void cnc_machine::move_xy(point p, cnc_machine::move_mode m)
+void cnc_machine::move(point p, cnc_machine::move_mode m)
 {
-    point c = position();
-    if (m == move_mode::safe && c.z < MIN_SAFE_HEIGHT) {
+    if (m == move_mode::safe && p.z < MIN_SAFE_HEIGHT) {
         move_z(MIN_SAFE_HEIGHT);
-        c.z = MIN_SAFE_HEIGHT;
+        p.z = MIN_SAFE_HEIGHT;
     }
 
-    talk("G0 " + point(p.x, p.y, c.z).grbl());
-    position_ = point(p.x, p.y, c.z);
+    talk("G0 " + p.grbl());
+    position_ = p;    
+}
+
+void cnc_machine::move_xy(point p, cnc_machine::move_mode m)
+{
+    move({ p.x, p.y, position().z }, m);
 }
 
 void cnc_machine::move_z(double z, cnc_machine::move_mode m)
@@ -160,6 +164,12 @@ void cnc_machine::move_z(double z, cnc_machine::move_mode m)
     talk("G0 Z" + std::to_string(z));
     position_.z = z;
 }
+
+void cnc_machine::feed(point p)
+{
+    talk("G1 " + p.grbl());
+    position_ = p;
+}   
 
 void cnc_machine::feed_z(double z)
 {

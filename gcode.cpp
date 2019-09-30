@@ -3,14 +3,16 @@
 #include "keyboard.h"
 
 
-gcmd::gcmd(const ::point& last_point, const std::string& str)
+gcmd gcmd::parse(const ::point& last_point, const std::string& str)
 {
+    gcmd ret;
+    
     if (starts_with(str, "(MSG,")) {
         auto i = str.begin() + 5;
         while (i != str.end() && isspace(*i))
             ++i;
-        cmd_ = "*" + std::string(i, str.end());
-        return;
+        ret.cmd_ = "*" + std::string(i, str.end());
+        return ret;
     }
 
     auto expect = [&str](bool b) {
@@ -36,13 +38,13 @@ gcmd::gcmd(const ::point& last_point, const std::string& str)
         while (i != ie && (isdigit(*i) || *i == '.' || *i == '-'))
             arg.push_back(*i++);
 
-        if (cmd_.empty()) {
+        if (ret.cmd_.empty()) {
             std::stringstream stream;
             stream << arg;
-            stream >> arg_;
+            stream >> ret.arg_;
 
             arg.insert(arg.begin(), letter);
-            cmd_ = arg;
+            ret.cmd_ = arg;
         } else if (letter == 'X') {
             pt.x = lexical_cast<double>(arg);
             has_pt = true;
@@ -53,12 +55,14 @@ gcmd::gcmd(const ::point& last_point, const std::string& str)
             pt.z = lexical_cast<double>(arg);
             has_pt = true;
         } else {
-            tail_.insert(std::make_pair(letter, lexical_cast<double>(arg)));
+            ret.tail_.insert(std::make_pair(letter, lexical_cast<double>(arg)));
         }
     }
 
     if (has_pt)
-        pt_ = pt;
+        ret.pt_ = pt;
+
+    return ret;
 }
 
 void gcmd::set_point(const ::point& pt)
@@ -88,7 +92,7 @@ gcode::gcode(std::istream& s)
         if (line.empty())
             continue;
 
-        gcmd c(last_pt, line);
+        gcmd c = gcmd::parse(last_pt, line);
         if (c.point().defined())
             last_pt = c.point();
 
@@ -199,7 +203,7 @@ void gcode::send_to(cnc_machine& cnc, const std::string& prompt)
                 interactive::change_tool(cnc, tool_chg_prompt);
                 in_tool_chg = false;
             } else {
-                interactive::position(cnc, "Program paused");
+                interactive::position(cnc, orientation::identity(), "Program paused");
             }
             
         } else {

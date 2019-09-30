@@ -26,6 +26,7 @@ public:
     
     const ::orientation& orientation() const { return orient_; }
     void set_orientation(double angle_hint = 0);
+    void set_orientation(::orientation o) { orient_ = o; }
     void drill_reference_points();
     void use_reference_points();
     

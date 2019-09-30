@@ -33,7 +33,7 @@ M5
 
 TEST_CASE("gcode_orient", "[gcode][xform]")
 {
-    gcmd g(point(), "G00 X10Y0Z0 F1");
+    gcmd g = gcmd::parse(point(), "G00 X10Y0Z0 F1");
     orientation o({5,0,0}, {0,0,0}, vector::axis::x().rotate(deg(30)));
     
     gcmd gx = g.xform_by(o);

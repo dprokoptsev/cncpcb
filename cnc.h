@@ -23,7 +23,8 @@ public:
     point position();
     void redefine_position(point newpos);
     void set_zero() { redefine_position({ 0, 0, 0 }); }
-        
+
+    void move(point p, move_mode m = move_mode::safe);
     void move_xy(point p, move_mode m = move_mode::safe);
     void move_z(double z, move_mode m = move_mode::safe);
     double probe();
@@ -31,6 +32,7 @@ public:
     
     bool touches_ground();
     
+    void feed(point p);
     void feed_z(double z);
 
     double spindle_speed() const { return spindle_speed_; }
@@ -42,14 +44,13 @@ public:
     void dwell(double seconds);
     
     void send_gcmd(const gcmd& cmd);
-
-    std::vector<std::string> talk(const std::string& cmd);
     
 private /*methods*/:
     void get_status();
     vector wco();
     
     std::string read_hash(const std::string& name, size_t index);
+    std::vector<std::string> talk(const std::string& cmd);
         
 private /*fields*/:
     std::iostream* s_;

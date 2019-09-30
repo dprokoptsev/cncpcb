@@ -45,7 +45,7 @@ namespace interactive {
 void clear_line();
 
 point position(
-    cnc_machine& cnc, const std::string& prompt,
+    cnc_machine& cnc, orientation orient, const std::string& prompt,
     cnc_machine::move_mode mode = cnc_machine::move_mode::safe
 );
 

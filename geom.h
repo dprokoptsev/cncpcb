@@ -87,6 +87,8 @@ public:
     vector operator / (double k) const { return { x/k, y/k, z/k }; }
     friend vector operator * (double k, const vector& v) { return v*k; }
 
+    vector operator-() const { return { -x, -y, -z }; }
+    
     vector& operator += (const vector& v) { return (*this = *this + v); }
     vector& operator -= (const vector& v) { return (*this = *this - v); }
     vector& operator *= (double k) { return (*this = *this * k); }
@@ -104,6 +106,7 @@ public:
     
     vector project_xy() const { return { x, y, 0 }; }
     vector mirror_x() const { return { -x, y, z }; }
+    vector mirror_y() const { return { x, -y, z }; }
 };
 
 
@@ -184,6 +187,7 @@ public:
         gcode_zero_(gcode_zero), cnc_zero_(cnc_zero), rotation_(rotation.project_xy().unit())
     {}
     static orientation reconstruct(const std::vector<point>& orig, const std::vector<point>& xformed);
+    static orientation identity() { return { point(0,0,0), point(0,0,0), vector::axis::x() }; }
     
     void set_hmirror(double hmirror) { hmirror_ = hmirror; }
     
@@ -194,6 +198,11 @@ public:
         if (!std::isnan(hmirror_))
             pt.x = 2*hmirror_ - pt.x;
         return (pt - gcode_zero_).rotate(rotation_) + cnc_zero_;
+    }
+    
+    orientation inv() const
+    {
+        return orientation(cnc_zero_, gcode_zero_, rotation_.mirror_y());
     }
     
     friend std::ostream& operator << (std::ostream& s, const orientation& o)

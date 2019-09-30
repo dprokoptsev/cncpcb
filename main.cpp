@@ -5,6 +5,7 @@
 #include "gcode.h"
 #include "workflow.h"
 #include "settings.h"
+#include "shapes.h"
 #include <string>
 #include <fstream>
 #include <algorithm>
@@ -64,6 +65,14 @@ int main(int argc, char** argv)
         
         std::unique_ptr<workflow>* wh = &workflows["default"];
         workflow* w = wh->get();
+        bool move_orient = false;
+        double probe_height = 0;
+        
+        auto orient = [&w]() -> orientation {
+            if (!w->orientation().defined())
+                throw std::runtime_error("command requires orientation defined");
+            return w->orientation();
+        };
 
         std::string cmd;
         while (readline("> ", cmd)) {
@@ -90,10 +99,52 @@ int main(int argc, char** argv)
                 } else if (cmd == "pos") {
                     std::cout << cnc.position() << std::endl;
                 } else if (cmd == "setzero") {
-                    interactive::position(cnc, "Set zero point", cnc_machine::move_mode::unsafe);
-                    cnc.set_zero();
+                    interactive::position(
+                        cnc, orientation::identity(),
+                        "Set zero point", cnc_machine::move_mode::unsafe
+                    );
+                    cnc.redefine_position({0, 0, probe_height});
                 } else if (cmd == "vi") {
-                    interactive::position(cnc, "Interactive position");
+                    interactive::position(
+                        cnc, move_orient ? orient() : orientation::identity(),
+                        "Interactive position"
+                    );
+                } else if (cmd == "move" || cmd == "feed") {
+                    
+                    auto to_coord = [&cnc, orient](const std::string& s, double (point::*coord)) {
+                        if (s[0] == '@') {
+                            return lexical_cast<double>(s.substr(1)) + orient().inv()(cnc.position()).*coord;
+                        } else {
+                            return lexical_cast<double>(s);
+                        }
+                    };
+                    std::string xy = args[0];
+                    point pt;
+                    if (xy.find('<') != std::string::npos) {
+                        point base(0,0,0);
+                        if (xy[0] == '@') {
+                            base = orient().inv()(cnc.position());
+                            xy.erase(0);
+                        }
+                        double dist = lexical_cast<double>(xy.substr(xy.find('<')));
+                        double angle = lexical_cast<double>(xy.substr(xy.find('>') + 1));
+                        pt = vector::axis::x(dist).rotate(angle * M_PI / 180) + base;
+                    } else {
+                        pt = point(
+                            to_coord(args[0], &point::x),
+                            to_coord(args[1], &point::y),
+                            to_coord(args.size() >= 3 ? args[2] : "@0", &point::z)
+                        );
+                    }
+                    
+                    pt = orient()(pt);
+                    
+                    if (cmd == "move")
+                        cnc.move(pt);
+                    else
+                        cnc.feed(pt);
+                    
+                    
                 } else if (cmd == "probe") {
                     for (size_t i = 0; i != (args.empty() ? 1 : lexical_cast<size_t>(args[0])); ++i) {
                         cnc.move_z(cnc.position().z + 0.5 + double(rand()) / RAND_MAX);
@@ -107,7 +158,8 @@ int main(int argc, char** argv)
                 } else if ((cmd == "gcode" || cmd == ".") && !args.empty()) {
                     bool dump = settings::g_params.dump_wire;
                     settings::g_params.dump_wire = true;
-                    cnc.talk(join(args, " "));
+                    gcmd gc = gcmd::parse(orient().inv()(cnc.position()), join(args, " ")).xform_by(orient());
+                    cnc.send_gcmd(gc);
                     settings::g_params.dump_wire = dump;
                     
                 } else if (cmd == "dump_wire" && !args.empty()) {
@@ -136,12 +188,14 @@ int main(int argc, char** argv)
                     std::cerr << "Orientation: " << w->orientation() << std::endl;
                     
                 } else if (cmd == "show" && !args.empty()) {
-                    auto xform = [&w](const std::vector<point>& pts) {
+                    auto xform = [&orient](const std::vector<point>& pts) {
                         std::vector<point> xf;
-                        std::transform(pts.begin(), pts.end(), std::back_inserter(xf), w->orientation());
+                        std::transform(pts.begin(), pts.end(), std::back_inserter(xf), orient());
                         return xf;
                     };
-                    if (args[0] == "refpts") {
+                    if (args[0] == "orient") {
+                        std::cerr << "Orientation" << orient() << std::endl;
+                    } else if (args[0] == "refpts") {
                         interactive::point_list(cnc, xform(w->reference_points())).show("Reference points");
                     } else if (args[0] == "drills") {
                         std::vector<point> pts;
@@ -201,7 +255,7 @@ int main(int argc, char** argv)
                     
                     interactive::change_tool(cnc, args.empty() ? std::string() : args[0]);
                     
-                } else if (cmd == "set" && args.size() == 2) {
+                } else if (cmd == "set" && args.size() >= 2) {
                     if (args[0] == "workflow") {
                         wh = &workflows[args[1]];
                         if (!*wh)
@@ -210,9 +264,38 @@ int main(int argc, char** argv)
                         std::cerr << "switched to workflow " << args[1] << std::endl;
                     } else if (args[0] == "z_adjust") {
                         w->adjust_z(lexical_cast<double>(args[1]));
+                    } else if (args[0] == "probe_height") {
+                        probe_height = lexical_cast<double>(args[1]);
+                    } else if (args[0] == "orient" && args.size() == 6) {
+                        w->set_orientation(orientation(
+                            point(lexical_cast<double>(args[1]), lexical_cast<double>(args[2]), 0),
+                            point(lexical_cast<double>(args[3]), lexical_cast<double>(args[4]), 0),
+                            vector::axis::x().rotate(lexical_cast<double>(args[5]) * M_PI / 180)
+                        ));
+                    } else if (args[0] == "move_orient") {
+                        move_orient = lexical_cast<int>(args[1]);
+                        std::cerr << "move " << (move_orient ? "" : "NOT ") << "subject to orient xform" << std::endl;
                     } else {
                         std::cerr << "unknown parameter" << std::endl;
                     }
+                    
+                } else if (cmd == "shape" && args.size() >= 1) {
+                    
+                    auto send = [&](gcode gc) {
+                        gc.xform_by(orient());
+                        gc.xform_by([d = cnc.position().to_vector()](point pt) { return pt + d; });
+                        gc.send_to(cnc);
+                    };
+                    
+                    if (args[0] == "circle" && args.size() == 2)
+                        send(shapes::circle(lexical_cast<double>(args[1])));
+                    else if (args[0] == "fillcircle" && args.size() == 3)
+                        send(shapes::filled_circle(lexical_cast<double>(args[1]), lexical_cast<double>(args[2])));
+                    else
+                        std::cerr << "unknown shape " << args[1] << std::endl;
+                    
+                    cnc.set_spindle_off();
+                    cnc.move_z(1);
                     
                 } else {
                     std::cerr << "unknown command" << std::endl;

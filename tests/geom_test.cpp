@@ -55,6 +55,15 @@ TEST_CASE("orientation", "[geometry][xform]")
     CHECK(r({10+sqrt(2), 5+sqrt(2), 0}) == approx(point(-2, 0, 0)));
 }
 
+TEST_CASE("inv_orientation", "[geometry][xform]")
+{
+    orientation o({ -44.5, -0.08, 0 }, { 9.38, -3.12, 0 }, { 1,0,0 });
+    orientation inv_o = o.inv();
+    
+    CHECK(o(inv_o({15, 15, 0})) == approx(point(15, 15, 0)));
+    CHECK(inv_o(o({15, 15, 0})) == approx(point(15, 15, 0)));
+}
+
 TEST_CASE("bbox", "[geometry]")
 {
     bounding_box b;

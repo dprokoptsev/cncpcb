@@ -13,7 +13,8 @@ class cnc_machine;
 
 class gcmd {
 public:
-    explicit gcmd(const point& last_point, const std::string& str);
+    gcmd(std::string cmd, ::point pt): cmd_(std::move(cmd)), pt_(pt) {}
+    static gcmd parse(const point& last_point, const std::string& str);
     
     const std::string& cmd() const { return cmd_; }
     
@@ -39,6 +40,8 @@ public:
     }
     
 private:
+    gcmd() {}
+
     std::string cmd_;
     std::map<char, double> tail_;
     ::point pt_;
@@ -49,6 +52,7 @@ private:
 class gcode {
 public:
     gcode();
+    template<class It> gcode(It begin, It end): cmds_(begin, end), resume_point_(0) {}
     explicit gcode(std::istream&);
     
     std::vector<gcmd>::const_iterator begin() const { return cmds_.begin(); }

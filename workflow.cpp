@@ -85,7 +85,7 @@ void workflow::set_orientation(double angle_hint /* = 0 */)
 
     v = v.rotate(angle_hint);
     for (;;) {
-        point ll = interactive::position(cnc(), "Bottom-left corner");
+        point ll = interactive::position(cnc(), orientation::identity(), "Bottom-left corner");
         ll.z = 0;
         v = interactive::angle(cnc(), "Top-right corner", ll, v);
 
