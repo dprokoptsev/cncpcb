@@ -30,18 +30,11 @@ clean:
 	rm -rf $(BIN) .obj
 
 
-define unit_test
-all: tests/$(1)
-tests/$(1): .obj/tests/$(1).cpp.o .obj/tests/main.cpp.o .obj/$(BIN).a Makefile
-	$$(CXX) $$(CXXFLAGS) $$(LDFLAGS) -o $$@ $$< .obj/tests/main.cpp.o .obj/$$(BIN).a $$(patsubst %,-l%,$$(LIBS))
-run_$(1): tests/$(1)
-	$$<
-test: run_$(1)
-.PHONY: run_$(1)
-endef
+tests/all: $(patsubst %,.obj/tests/%.o,$(TESTS)) .obj/tests/main.cpp.o .obj/$(BIN).a Makefile
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(patsubst %,.obj/tests/%.o,$(TESTS)) .obj/tests/main.cpp.o .obj/$(BIN).a $(patsubst %,-l%,$(LIBS))
 
-
-$(foreach t,$(TESTS),$(eval $(call unit_test,$(patsubst %.cpp,%,$(t)))))
+test: tests/all
+	$<
 
 .PHONY: all test clean
 

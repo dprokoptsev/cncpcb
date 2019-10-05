@@ -6,18 +6,18 @@
 #include <cmath>
 
 
-double deg(double x) { return x*M_PI/180; }
+inline double deg(double x) { return x*M_PI/180; }
 
 
 static const double EPSILON = 1e-6;
 
-bool approx_cmp(double a, double b)
+inline bool approx_cmp(double a, double b)
 {
     return (std::isnan(a) && std::isnan(b))
         || fabs(a - b) < EPSILON;
 }
 
-bool approx_cmp(const pt_base& a, const pt_base& b)
+inline bool approx_cmp(const pt_base& a, const pt_base& b)
     { return approx_cmp(a.x, b.x) && approx_cmp(a.y, b.y) && approx_cmp(a.z, b.z); }
 
 template<class T> class approx_impl_ {
