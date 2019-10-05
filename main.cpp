@@ -6,28 +6,12 @@
 #include "workflow.h"
 #include "settings.h"
 #include "shapes.h"
+#include "dispatch.h"
 #include <string>
 #include <fstream>
 #include <algorithm>
 
 #include <unistd.h>
-#include <readline/readline.h>
-#include <readline/history.h>
-
-
-bool readline(const std::string& prompt, std::string& dest)
-{
-    char* s = ::readline(prompt.c_str());
-    if (s) {
-        if (*s)
-            add_history(s);
-        dest = std::string(s);
-        free(s);
-        return true;
-    } else {
-        return false;
-    }
-}
 
 
 void usage()
@@ -36,6 +20,42 @@ void usage()
     ::exit(1);
 }
 
+
+class gcode_command: public command {
+public:
+    explicit gcode_command(workflow*& w): w_(&w) {}
+    
+    bool matches(const std::vector<std::string>& args) const override
+    {
+        return !args.empty() && (args[0] == "gcode" || args[0] == ".");
+    }
+    
+    command::errmsg call(const std::vector<std::string>& args) const override
+    {
+        std::string line = join(std::vector<std::string>(args.begin() + 1, args.end()), " ");
+        bool dump = settings::g_params.dump_wire;
+        try {
+            if (!(*w_)->orientation().defined())
+                throw std::runtime_error("raw gcode requires orientation");
+            
+            orientation o = (*w_)->orientation();
+            settings::g_params.dump_wire = true;
+            gcmd gc = gcmd::parse(o.inv()(cnc().position()), join(args, " ")).xform_by(o);
+            cnc().send_gcmd(gc);
+            settings::g_params.dump_wire = dump;
+        }
+        catch (...) {
+            settings::g_params.dump_wire = dump;
+            throw;
+        }
+        return {};
+    }
+    
+private:
+    workflow** w_;
+    
+    cnc_machine& cnc() const { return (*w_)->cnc(); }
+};
 
 int main(int argc, char** argv)
 {
@@ -73,242 +93,164 @@ int main(int argc, char** argv)
                 throw std::runtime_error("command requires orientation defined");
             return w->orientation();
         };
-
-        std::string cmd;
-        while (readline("> ", cmd)) {
-            auto args = split<std::string>(cmd, " ");
-            cmd = args.front();
-            args.erase(args.begin());
-            
-            try {
-            
-                if (cmd == "reset" && !args.empty()) {
-                    if (args[0] == "cnc") {
-                        cnc.reset();
-                    } else if (args[0] == "tty") {
-                        tty.reset();
-                        tty = std::make_unique<serial_port>(ttyname);
-                        cnc.rebind(*tty);
-                    } else if (args[0] == "workflow") {
-                        wh->reset(new workflow(cnc));
-                        w = wh->get();
-                        std::cerr << "workflow reset" << std::endl;
-                    } else {
-                        std::cerr << "unknown entity" << std::endl;
-                    }
-                } else if (cmd == "pos") {
-                    std::cout << cnc.position() << std::endl;
-                } else if (cmd == "setzero") {
-                    interactive::position(
-                        cnc, orientation::identity(),
-                        "Set zero point", cnc_machine::move_mode::unsafe
-                    );
-                    cnc.redefine_position({0, 0, probe_height});
-                } else if (cmd == "vi") {
-                    interactive::position(
-                        cnc, move_orient ? orient() : orientation::identity(),
-                        "Interactive position"
-                    );
-                } else if (cmd == "move" || cmd == "feed") {
-                    
-                    auto to_coord = [&cnc, orient](const std::string& s, double (point::*coord)) {
-                        if (s[0] == '@') {
-                            return lexical_cast<double>(s.substr(1)) + orient().inv()(cnc.position()).*coord;
-                        } else {
-                            return lexical_cast<double>(s);
-                        }
-                    };
-                    std::string xy = args[0];
-                    point pt;
-                    if (xy.find('<') != std::string::npos) {
-                        point base(0,0,0);
-                        if (xy[0] == '@') {
-                            base = orient().inv()(cnc.position());
-                            xy.erase(0);
-                        }
-                        double dist = lexical_cast<double>(xy.substr(xy.find('<')));
-                        double angle = lexical_cast<double>(xy.substr(xy.find('>') + 1));
-                        pt = vector::axis::x(dist).rotate(angle * M_PI / 180) + base;
-                    } else {
-                        pt = point(
-                            to_coord(args[0], &point::x),
-                            to_coord(args[1], &point::y),
-                            to_coord(args.size() >= 3 ? args[2] : "@0", &point::z)
-                        );
-                    }
-                    
-                    pt = orient()(pt);
-                    
-                    if (cmd == "move")
-                        cnc.move(pt);
-                    else
-                        cnc.feed(pt);
-                    
-                    
-                } else if (cmd == "probe") {
-                    for (size_t i = 0; i != (args.empty() ? 1 : lexical_cast<size_t>(args[0])); ++i) {
-                        cnc.move_z(cnc.position().z + 0.5 + double(rand()) / RAND_MAX);
-                        std::cout << cnc.probe() << std::endl;
-                    }
-                } else if (cmd == "hprobe") {
-                    for (size_t i = 0; i != (args.empty() ? 1 : lexical_cast<size_t>(args[0])); ++i) {
-                        cnc.move_z(cnc.position().z + 0.5 + double(rand()) / RAND_MAX);
-                        std::cout << cnc.high_precision_probe() << std::endl;
-                    }
-                } else if ((cmd == "gcode" || cmd == ".") && !args.empty()) {
-                    bool dump = settings::g_params.dump_wire;
-                    settings::g_params.dump_wire = true;
-                    gcmd gc = gcmd::parse(orient().inv()(cnc.position()), join(args, " ")).xform_by(orient());
-                    cnc.send_gcmd(gc);
-                    settings::g_params.dump_wire = dump;
-                    
-                } else if (cmd == "dump_wire" && !args.empty()) {
-                    settings::g_params.dump_wire = (args[0] == "on");
-                    
-                } else if (cmd == "load" && args.size() >= 2) {
-                    if (args[0] == "border")
-                        w->load_border(args[1]);
-                    else if (args[0] == "drill")
-                        w->load_drill(args[1]);
-                    else if (args[0] == "mill")
-                        w->load_mill(args[1]);
-                    else
-                        std::cerr << "Unknown layer '" << args[0] << "'" << std::endl;
-
-                } else if (cmd == "mirror") {
-                    w->mirror();
-                    std::cout << "Mirror ON" << std::endl;
-                } else if (cmd == "orient") {
-                    w->set_orientation(args.empty() ? 0 : lexical_cast<double>(args[0]) * M_PI / 180);
-                    std::cerr << "Orientation: " << w->orientation() << std::endl;
-                } else if (cmd == "drillrefs") {
-                    w->drill_reference_points();
-                } else if (cmd == "userefs") {
-                    w->use_reference_points();
-                    std::cerr << "Orientation: " << w->orientation() << std::endl;
-                    
-                } else if (cmd == "show" && !args.empty()) {
-                    auto xform = [&orient](const std::vector<point>& pts) {
-                        std::vector<point> xf;
-                        std::transform(pts.begin(), pts.end(), std::back_inserter(xf), orient());
-                        return xf;
-                    };
-                    if (args[0] == "orient") {
-                        std::cerr << "Orientation" << orient() << std::endl;
-                    } else if (args[0] == "refpts") {
-                        interactive::point_list(cnc, xform(w->reference_points())).show("Reference points");
-                    } else if (args[0] == "drills") {
-                        std::vector<point> pts;
-                        std::vector<std::string> dias;
-                        for (const auto& d: w->drills()) {
-                            pts.push_back(d.center);
-                            dias.push_back("dia=" + std::to_string(d.radius * 2));
-                        }
-                        interactive::point_list(cnc, xform(pts), dias).show("Drills");
-                    } else {
-                        std::cerr << "Unknown layer " << args[0] << std::endl;
-                    }
-
-                } else if (cmd == "drill") {
-                    w->drill();
-                } else if (cmd == "mill") {
-                    w->mill();
-                } else if (cmd == "hmap+mill") {
-                    w->scan_height_map();
-                    w->mill();
-                } else if (cmd == "cut") {
-                    w->cut();
-                } else if (cmd == "resume") {
-                    w->resume();
-
-                } else if (cmd == "dump" && args.size() == 2) {
-                    if (args[0] == "mill")
-                        w->dump_mill(args[1]);
-                    else
-                        std::cerr << "unknown layer '" << args[0] << "'" << std::endl;
-                    
-                } else if (cmd == "hmap" && !args.empty()) {
-                    if (args[0] == "scan")
-                        w->scan_height_map();
-                    else if (args[0] == "load" && args.size() >= 2)
-                        w->load_height_map(args[1]);
-                    else if (args[0] == "save" && args.size() >= 2)
-                        w->save_height_map(args[1]);
-                    else
-                        std::cerr << "unknown subcommand 'hmap " << args[0] << "'" << std::endl;
-                    
-                } else if (cmd == "status") {
-                    
-                    std::cout << "position: " << cnc.position()
-                              << "; spindle: " << (cnc.is_spindle_on() ? "ON" : "off")
-                              << "; probe: " << (cnc.touches_ground() ? "YES": "no")
-                              << std::endl;
-
-                } else if (cmd == "spindle" && !args.empty()) {
-                    
-                    if (args[0] == "on")
-                        cnc.set_spindle_on();
-                    else
-                        cnc.set_spindle_off();
-                    
-                } else if (cmd == "chtool") {
-                    
-                    interactive::change_tool(cnc, args.empty() ? std::string() : args[0]);
-                    
-                } else if (cmd == "set" && args.size() >= 2) {
-                    if (args[0] == "workflow") {
-                        wh = &workflows[args[1]];
-                        if (!*wh)
-                            *wh = std::make_unique<workflow>(cnc);
-                        w = wh->get();
-                        std::cerr << "switched to workflow " << args[1] << std::endl;
-                    } else if (args[0] == "z_adjust") {
-                        w->adjust_z(lexical_cast<double>(args[1]));
-                    } else if (args[0] == "probe_height") {
-                        probe_height = lexical_cast<double>(args[1]);
-                    } else if (args[0] == "orient" && args.size() == 6) {
-                        w->set_orientation(orientation(
-                            point(lexical_cast<double>(args[1]), lexical_cast<double>(args[2]), 0),
-                            point(lexical_cast<double>(args[3]), lexical_cast<double>(args[4]), 0),
-                            vector::axis::x().rotate(lexical_cast<double>(args[5]) * M_PI / 180)
-                        ));
-                    } else if (args[0] == "move_orient") {
-                        move_orient = lexical_cast<int>(args[1]);
-                        std::cerr << "move " << (move_orient ? "" : "NOT ") << "subject to orient xform" << std::endl;
-                    } else {
-                        std::cerr << "unknown parameter" << std::endl;
-                    }
-                    
-                } else if (cmd == "shape" && args.size() >= 1) {
-                    
-                    auto send = [&](gcode gc) {
-                        gc.xform_by(orient());
-                        gc.xform_by([d = cnc.position().to_vector()](point pt) { return pt + d; });
-                        gc.send_to(cnc);
-                    };
-                    
-                    if (args[0] == "circle" && args.size() == 2)
-                        send(shapes::circle(lexical_cast<double>(args[1])));
-                    else if (args[0] == "fillcircle" && args.size() == 3)
-                        send(shapes::filled_circle(lexical_cast<double>(args[1]), lexical_cast<double>(args[2])));
-                    else
-                        std::cerr << "unknown shape " << args[1] << std::endl;
-                    
-                    cnc.set_spindle_off();
-                    cnc.move_z(1);
-                    
-                } else {
-                    std::cerr << "unknown command" << std::endl;
-                }
-                
-            }
-            catch (std::exception& e) {
-                cnc.set_spindle_off();
-                std::cerr << "\033[31;1m" << e.what() << "\033[0m" << std::endl;
-            }
-        }
+        auto maybe_orient = [&orient, &move_orient]() -> orientation {
+            return move_orient ? orient() : orientation::identity();
+        };
         
-        std::cout << std::endl;
+        COMMAND("reset cnc") { cnc.reset(); };
+        COMMAND("reset tty") {
+            tty.reset();
+            tty = std::make_unique<serial_port>(ttyname);
+            cnc.rebind(*tty);
+        };
+        COMMAND("reset workflow") {
+            wh->reset(new workflow(cnc));
+            w = wh->get();
+            std::cerr << "workflow reset" << std::endl;
+        };
+        
+        COMMAND("pos") { std::cout << cnc.position() << std::endl; };
+        COMMAND("status") {
+            std::cout << "position: " << cnc.position()
+                      << "; spindle: " << (cnc.is_spindle_on() ? "ON" : "off")
+                      << "; probe: " << (cnc.touches_ground() ? "YES": "no")
+                      << std::endl;
+        };
+        
+        COMMAND("vi") { interactive::position(cnc, maybe_orient(), "Interactive position"); };
+        
+        COMMAND("setzero") {
+            interactive::position(
+                cnc, orientation::identity(),
+                "Set zero point", cnc_machine::move_mode::unsafe
+            );
+        };
+        
+        COMMAND("move", rel_coord x, rel_coord y, rel_coord z = {}) {
+            point pos = cnc.position();
+            cnc.move({
+                x.resolve(pos.x),
+                y.resolve(pos.y),
+                z.resolve(pos.z)
+            });
+        };
+        COMMAND("move", polar_coord xy, rel_coord z = {}) {
+            point pos = xy.resolve(cnc.position());
+            cnc.move({ pos.x, pos.y, z.resolve(pos.z) });
+        };
+        COMMAND("feed", rel_coord x, rel_coord y, rel_coord z = {}) {
+            point pos = cnc.position();
+            cnc.feed({
+                x.resolve(pos.x),
+                y.resolve(pos.y),
+                z.resolve(pos.z)
+            });
+        };
+        COMMAND("feed", polar_coord xy, rel_coord z = {}) {
+            point pos = xy.resolve(cnc.position());
+            cnc.feed({ pos.x, pos.y, z.resolve(pos.z) });
+        };
+        
+        COMMAND("dump wire", bool b) { settings::g_params.dump_wire = b; };
+        
+        COMMAND("load border", const std::string& file) { w->load_border(file); };
+        COMMAND("load mill", const std::string& file) { w->load_mill(file); };
+        COMMAND("load drill", const std::string& file) { w->load_drill(file); };
+        
+        COMMAND("mirror", bool b = true) { w->mirror(b); };
+
+        COMMAND("orient", double angle_hint = 0) {
+            w->set_orientation(angle_hint * M_PI / 180);
+            std::cerr << "Orientation: " << w->orientation() << std::endl;
+        };
+        
+        COMMAND("drillrefs") { w->drill_reference_points(); };
+        COMMAND("userefs") {
+            w->use_reference_points();
+            std::cerr << "Orientation: " << w->orientation() << std::endl;
+        };
+        
+        
+        auto xform = [&orient](const std::vector<point>& pts) {
+            std::vector<point> xf;
+            std::transform(pts.begin(), pts.end(), std::back_inserter(xf), orient());
+            return xf;
+        };
+
+        COMMAND("show orient") { std::cout << orient() << std::endl; };
+        COMMAND("show refpts") {
+            interactive::point_list(cnc, xform(w->reference_points())).show("Reference points");
+        };
+        COMMAND("show drills") {
+            std::vector<point> pts;
+            std::vector<std::string> dias;
+            for (const auto& d: w->drills()) {
+                pts.push_back(d.center);
+                dias.push_back("dia=" + std::to_string(d.radius * 2));
+            }
+            interactive::point_list(cnc, xform(pts), dias).show("Drills");
+        };
+        
+        
+        COMMAND("run drill") { w->drill(); };
+        COMMAND("run mill") { w->mill(); };
+        COMMAND("run hmap+mill") {
+            w->scan_height_map();
+            w->mill();
+        };
+        COMMAND("run cut") { w->cut(); };
+        COMMAND("resume") { w->resume(); };
+        
+        COMMAND("dump mill", const std::string& filename) { w->dump_mill(filename); };
+        
+        COMMAND("hmap scan") { w->scan_height_map(); };
+        COMMAND("hmap load", const std::string& filename) { w->load_height_map(filename); };
+        COMMAND("hmap save", const std::string& filename) { w->save_height_map(filename); };
+        
+        COMMAND("spindle on") { cnc.set_spindle_on(); };
+        COMMAND("spindle off") { cnc.set_spindle_off(); };
+        
+        COMMAND("chtool", const std::string& prompt) { interactive::change_tool(cnc, prompt); };
+        
+        COMMAND("set workflow", const std::string& wfname) {
+            wh = &workflows[wfname];
+            if (!*wh)
+                *wh = std::make_unique<workflow>(cnc);
+            w = wh->get();
+            std::cerr << "switched to workflow " << wfname << std::endl;
+        };
+        COMMAND("set z_adjust", double z) { w->adjust_z(z); };
+        COMMAND("set probe_height", double h) { probe_height = h; };
+        COMMAND("set orient", double gx0, double gy0, double cx0, double cy0, double rot) {
+            w->set_orientation({
+                point { gx0, gy0, 0 },
+                point { cx0, cy0, 0 },
+                vector::axis::x().rotate(rot * M_PI / 180)
+            });
+        };
+        COMMAND("set move_orient", bool b) { move_orient = b; };
+        
+        
+        auto mill_shape = [&](gcode gc) {
+            gc.xform_by(orient());
+            gc.xform_by([d = cnc.position().to_vector()](point pt) { return pt + d; });
+            gc.send_to(cnc);
+            
+            cnc.set_spindle_off();
+            if (cnc.position().z < 1)
+                cnc.move_z(1);
+        };
+        COMMAND("shape circle", double r) { mill_shape(shapes::circle(r)); };
+        COMMAND("shape fullcircle", double r, double w) { mill_shape(shapes::filled_circle(r, w)); };
+        
+        impl::command_list::instance() << std::make_unique<gcode_command>(w);
+
+        ON_FAILURE {
+            cnc.set_spindle_off();
+        };
+        run_cmd_loop();
+        cnc.set_spindle_off();
+
         return 0;
     }
     catch (std::runtime_error& e) {

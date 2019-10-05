@@ -34,11 +34,11 @@ static std::vector<std::string> reference_points_desc()
     };
 }
 
-void workflow::mirror()
+void workflow::mirror(bool b)
 {
     if (border_ || orient_.defined() || drill_ || mill_)
         throw error("reset workflow first");
-    mirror_ = true;
+    mirror_ = b;
 }
 
 

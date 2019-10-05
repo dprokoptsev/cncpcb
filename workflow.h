@@ -16,8 +16,9 @@ public:
     };
 
     explicit workflow(cnc_machine& cnc): cnc_(&cnc) {}
+    cnc_machine& cnc() { return *cnc_; }
     
-    void mirror();
+    void mirror(bool b);
     
     void load_border(const std::string& filename);
     
@@ -53,7 +54,6 @@ for_testing_only:
     void set_drill(std::unique_ptr<gcode> drill) { drill_ = std::move(drill); }
 
 private:
-    cnc_machine& cnc() { return *cnc_; }
     void require_border() const;
     void require_orientation() const;
     

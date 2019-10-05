@@ -1,13 +1,15 @@
 
 BIN = cnc
-SRCS = errors.cpp cnc.cpp main.cpp keyboard.cpp workflow.cpp geom.cpp gcode.cpp settings.cpp shapes.cpp
+SRCS = \
+    errors.cpp cnc.cpp main.cpp keyboard.cpp workflow.cpp \
+    geom.cpp gcode.cpp settings.cpp shapes.cpp dispatch.cpp
 
-TESTS = geom_test.cpp gcode_test.cpp height_map_test.cpp workflow_test.cpp
+TESTS = geom_test.cpp gcode_test.cpp height_map_test.cpp workflow_test.cpp dispatch_test.cpp
 
 LIBS = readline
 
 CXX = g++
-CXXFLAGS = -std=gnu++14 -Wall -Wextra -Werror -O0 -ggdb
+CXXFLAGS = -std=gnu++17 -Wall -Wextra -Werror -O0 -ggdb
 
 
 OBJS = $(patsubst %.cpp,.obj/%.cpp.o,$(SRCS))
