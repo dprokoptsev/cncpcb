@@ -40,7 +40,9 @@ public:
             
             orientation o = (*w_)->orientation();
             settings::g_params.dump_wire = true;
-            gcmd gc = gcmd::parse(o.inv()(cnc().position()), join(args, " ")).xform_by(o);
+            std::vector<std::string> gcode_words = args;
+            gcode_words.erase(gcode_words.begin());
+            gcmd gc = gcmd::parse(o.inv()(cnc().position()), join(gcode_words, " ")).xform_by(o);
             cnc().send_gcmd(gc);
             settings::g_params.dump_wire = dump;
         }
@@ -85,7 +87,7 @@ int main(int argc, char** argv)
         
         std::unique_ptr<workflow>* wh = &workflows["default"];
         workflow* w = wh->get();
-        bool move_orient = false;
+        bool move_orient = true;
         double probe_height = 0;
         
         auto orient = [&w]() -> orientation {
@@ -119,36 +121,51 @@ int main(int argc, char** argv)
         
         COMMAND("vi") { interactive::position(cnc, maybe_orient(), "Interactive position"); };
         
-        COMMAND("setzero") {
+        COMMAND("set zero") {
             interactive::position(
                 cnc, orientation::identity(),
                 "Set zero point", cnc_machine::move_mode::unsafe
             );
+            cnc.redefine_position({ 0, 0, probe_height });
+        };
+        COMMAND("set hzero") {
+            interactive::position(
+                cnc, orientation::identity(),
+                "Set horizontal zero point", cnc_machine::move_mode::unsafe
+            );
+            cnc.redefine_position({ 0, 0, cnc.position().z });
+        };
+        COMMAND("set vzero") {
+            interactive::position(
+                cnc, orientation::identity(),
+                "Set vertical zero point", cnc_machine::move_mode::unsafe
+            );
+            cnc.redefine_position({ cnc.position().x, cnc.position().y, probe_height });
         };
         
         COMMAND("move", rel_coord x, rel_coord y, rel_coord z = {}) {
-            point pos = cnc.position();
-            cnc.move({
+            point pos = maybe_orient().inv()(cnc.position());
+            cnc.move(maybe_orient()({
                 x.resolve(pos.x),
                 y.resolve(pos.y),
                 z.resolve(pos.z)
-            });
+            }));
         };
         COMMAND("move", polar_coord xy, rel_coord z = {}) {
-            point pos = xy.resolve(cnc.position());
-            cnc.move({ pos.x, pos.y, z.resolve(pos.z) });
+            point pos = xy.resolve(maybe_orient().inv()(cnc.position()));
+            cnc.move(maybe_orient()({ pos.x, pos.y, z.resolve(pos.z) }));
         };
         COMMAND("feed", rel_coord x, rel_coord y, rel_coord z = {}) {
-            point pos = cnc.position();
-            cnc.feed({
+            point pos = maybe_orient().inv()(cnc.position());
+            cnc.feed(maybe_orient()({
                 x.resolve(pos.x),
                 y.resolve(pos.y),
                 z.resolve(pos.z)
-            });
+            }));
         };
         COMMAND("feed", polar_coord xy, rel_coord z = {}) {
-            point pos = xy.resolve(cnc.position());
-            cnc.feed({ pos.x, pos.y, z.resolve(pos.z) });
+            point pos = xy.resolve(maybe_orient().inv()(cnc.position()));
+            cnc.feed(maybe_orient()({ pos.x, pos.y, z.resolve(pos.z) }));
         };
         
         COMMAND("dump wire", bool b) { settings::g_params.dump_wire = b; };
@@ -162,6 +179,19 @@ int main(int argc, char** argv)
         COMMAND("orient", double angle_hint = 0) {
             w->set_orientation(angle_hint * M_PI / 180);
             std::cerr << "Orientation: " << w->orientation() << std::endl;
+        };
+        COMMAND("orient", double gx, double gy, double cncx, double cncy, double angle) {
+            w->set_orientation(orientation(
+                point(gx, gy, 0),
+                point(cncx, cncy, 0),
+                vector::axis::x().rotate(angle * M_PI / 180)
+            ));
+        };
+        COMMAND("orient", double gx, double gy) {
+            w->set_orientation(orientation::reconstruct(
+                {{0,0,0}, {gx,gy,0}},
+                {{0,0,0}, cnc.position()}
+            ));
         };
         
         COMMAND("drillrefs") { w->drill_reference_points(); };
@@ -209,6 +239,8 @@ int main(int argc, char** argv)
         
         COMMAND("spindle on") { cnc.set_spindle_on(); };
         COMMAND("spindle off") { cnc.set_spindle_off(); };
+        COMMAND("set spindle_speed", double spd) { cnc.set_spindle_speed(spd); };
+        COMMAND("set feed_rate", double feed) { cnc.set_feed_rate(feed); };
         
         COMMAND("chtool", const std::string& prompt) { interactive::change_tool(cnc, prompt); };
         
@@ -230,19 +262,32 @@ int main(int argc, char** argv)
         };
         COMMAND("set move_orient", bool b) { move_orient = b; };
         
-        
+        double shape_depth = 0;
         auto mill_shape = [&](gcode gc) {
+            gc.break_long_legs();
+            auto pos = cnc.position();
             gc.xform_by(orient());
-            gc.xform_by([d = cnc.position().to_vector()](point pt) { return pt + d; });
+            gc.xform_by([d = cnc.position().to_vector().project_xy() - vector::axis::z(shape_depth)](point pt) { return pt + d; });
+            
+            cnc.move_xy(gc.frontpt());
+            cnc.set_spindle_on();
+            cnc.dwell(1);
             gc.send_to(cnc);
             
             cnc.set_spindle_off();
             if (cnc.position().z < 1)
                 cnc.move_z(1);
+            cnc.move(pos);
         };
+        COMMAND("set shape_depth", double d) { shape_depth = d; };
         COMMAND("shape circle", double r) { mill_shape(shapes::circle(r)); };
-        COMMAND("shape fullcircle", double r, double w) { mill_shape(shapes::filled_circle(r, w)); };
-        
+        COMMAND("shape fillcircle", double r, double w) { mill_shape(shapes::filled_circle(0, r, w)); };
+        COMMAND("shape fillcircle", double r1, double r2, double w) { mill_shape(shapes::filled_circle(r1, r2, w)); };
+
+        COMMAND("shape box", double w, double h) { mill_shape(shapes::box(w, h)); };
+        COMMAND("shape box", double w, double h, double r) { mill_shape(shapes::box(w, h, r)); };
+        COMMAND("shape fillbox", double w, double h, double tw) { mill_shape(shapes::filled_box(w, h, tw)); };
+                
         impl::command_list::instance() << std::make_unique<gcode_command>(w);
 
         ON_FAILURE {

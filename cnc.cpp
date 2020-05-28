@@ -180,9 +180,12 @@ void cnc_machine::feed_z(double z)
 double cnc_machine::probe()
 {
     position_ = point();
+    double prev_feed_rate = feed_rate();
     talk("G38.2 F15 Z-50");
     wait();
-    return (point(read_hash("[PRB", 1)) - wco()).z;
+    double ret = (point(read_hash("[PRB", 1)) - wco()).z;
+    set_feed_rate(prev_feed_rate);
+    return ret;
 }
 
 double cnc_machine::high_precision_probe()
@@ -264,6 +267,12 @@ void cnc_machine::set_spindle_off()
 {
     talk("M5");
     spindle_on_ = false;
+}
+
+void cnc_machine::set_feed_rate(double feed_rate)
+{
+    feed_rate_ = feed_rate;
+    talk("F" + std::to_string(feed_rate));
 }
 
 void cnc_machine::dwell(double seconds) { talk("G4 P" + std::to_string(seconds)); }

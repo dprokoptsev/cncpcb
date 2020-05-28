@@ -40,7 +40,8 @@ public:
     void set_spindle_on();
     void set_spindle_off();
     bool is_spindle_on();
-    void set_feed_rate(double feed) { talk("F" + std::to_string(feed)); }
+    double feed_rate() const { return feed_rate_; }
+    void set_feed_rate(double feed);
     void dwell(double seconds);
     
     void send_gcmd(const gcmd& cmd);

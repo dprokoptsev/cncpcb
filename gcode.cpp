@@ -224,3 +224,11 @@ void gcode::send_to(cnc_machine& cnc, const std::string& prompt)
     
     std::cerr << std::endl;
 }
+
+point gcode::frontpt() const
+{
+    for (const gcmd& gc: *this)
+        if (gc.point().defined())
+            return gc.point();
+    return point();
+}

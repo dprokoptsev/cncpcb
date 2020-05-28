@@ -73,6 +73,8 @@ public:
     
     ::bounding_box bounding_box() const;
     
+    point frontpt() const;
+    
 private:
     enum gcmd_classification { USE, IGNORE, ERROR };
 

@@ -6,6 +6,10 @@
 namespace shapes {
 
 gcode circle(double radius);
-gcode filled_circle(double radius, double width);
+gcode filled_circle(double r1, double r2, double width);
+
+gcode box(double width, double height);
+gcode box(double width, double height, double radius);
+gcode filled_box(double width, double height, double tool_width);
 
 } // namespace shapes

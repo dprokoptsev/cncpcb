@@ -117,6 +117,9 @@ public:
     point operator + (const vector& v) const { return { x + v.x, y + v.y, z + v.z }; }
     point operator - (const vector& v) const { return { x - v.x, y - v.y, z - v.z }; }
     
+    point& operator += (const vector& v) { x += v.x; y += v.y; z += v.z; return *this; }
+    point& operator -= (const vector& v) { x -= v.x; y -= v.y; z -= v.z; return *this; }
+    
     friend point operator + (const vector& v, const point& pt) { return { v.x + pt.x, v.y + pt.y, v.z + pt.z }; }
     vector operator - (const point& p) const { return { x - p.x, y - p.y, z - p.z }; }
     
