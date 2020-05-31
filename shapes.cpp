@@ -10,7 +10,7 @@ namespace impl {
 template<class OutIter>
 OutIter arc(point center, double radius, double start_angle, double arc_angle, OutIter out)
 {
-    static const double PRECISION = 0.01 /*mm*/;
+    static const double PRECISION = 0.05 /*mm*/;
     double step = PRECISION / radius;
     double direction = arc_angle / fabs(arc_angle);
     for (double a = 0; fabs(a) < fabs(arc_angle); a += step * direction)
@@ -89,18 +89,23 @@ gcode filled_box(double width, double height, double tool_width)
 {
     std::vector<gcmd> ret;
     double tw2 = tool_width/2;
-    vector ydir = vector::axis::y(height - 4*tw2);
+    vector yleg = vector::axis::y(height - 4*tw2);
     point pt(2*tw2, 2*tw2, 0);
+    double dir = 1;
     ret.push_back(gcmd("G1", pt));
     
-    auto move_by = [&ret, &pt](vector v) {
-        pt += v;
+    bool first = true;
+    for (double x = 2*tw2; x < width - 2*tw2; x += tw2/2) {
+        if (first) {
+            first = false;
+        } else {
+            impl::arc(pt + vector::axis::x(tw2/4), tw2/4, -M_PI, M_PI * dir, std::back_inserter(ret));
+            pt += vector::axis::x(tw2/2);
+        }
+
+        pt += yleg * dir;
         ret.push_back(gcmd("G1", pt));
-    };
-    for (double x = 2*tw2; x < width - 2*tw2; x += tw2) {
-        move_by(ydir);
-        move_by(vector::axis::x(tw2));
-        ydir *= -1;
+        dir *= -1;
     }
     
     ret.push_back(gcmd("G1", point(width - tw2, tw2, 0)));
