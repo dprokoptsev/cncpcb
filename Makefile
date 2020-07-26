@@ -6,36 +6,61 @@ SRCS = \
 
 TESTS = geom_test.cpp gcode_test.cpp height_map_test.cpp workflow_test.cpp dispatch_test.cpp
 
-LIBS = readline
+LIBS = readline tinfo
 
-CXX = g++
-CXXFLAGS = -std=gnu++17 -Wall -Wextra -Werror -O0 -ggdb
+ARCH = amd64 armhf
 
+CXX_amd64 = g++
+CXX_armhf = /opt/cross-pi-gcc/bin/arm-linux-gnueabihf-g++
+CXXFLAGS = -std=gnu++17 -Wall -Wextra -Werror -Wno-psabi -O0 -ggdb
 
-OBJS = $(patsubst %.cpp,.obj/%.cpp.o,$(SRCS))
+define make_arch
+# $(1) - arch
 
-all: $(BIN)
+OBJS_$(1) = $$(patsubst %.cpp,.obj/$(1)/%.cpp.o,$(filter-out main.cpp,$(SRCS)))
 
-.obj/$(BIN).a: $(patsubst %,.obj/%.o,$(filter-out main.cpp,$(SRCS)))
-	ar cr $@ $^
+all: .obj/$(1)/$(BIN)
 
-$(BIN): .obj/$(BIN).a .obj/main.cpp.o Makefile
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ .obj/main.cpp.o .obj/$(BIN).a $(patsubst %,-l%,$(LIBS))
+.obj/$(1)/$(BIN): .obj/$(1)/$(BIN).a .obj/$(1)/main.cpp.o Makefile
+	$$(CXX_$(1)) $(CXXFLAGS) $$(CXXFLAGS_$(1)) $(LDFLAGS) $$(LDFLAGS_$(1)) -o $$@ \
+	    .obj/$(1)/main.cpp.o .obj/$(1)/$(BIN).a $(patsubst %,-l%,$(LIBS))
 
-.obj/%.o: % Makefile
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c -o $@ -MD -MF $(patsubst %,.obj/%.d,$(subst /,_,$<)) -MT $@ $<
+.obj/$(1)/$(BIN).a: $$(OBJS_$(1))
+	ar cr $$@ $$^
 
-clean:
-	rm -rf $(BIN) .obj
+.obj/$(1)/%.cpp.o: %.cpp Makefile
+	@mkdir -p $$(dir $$@) .obj/deps
+	$$(CXX_$(1)) $(CXXFLAGS) $$(CXXFLAGS_$(1)) -c -o $$@ \
+	    -MD -MF $$(patsubst %,.obj/deps/$(1)_%.d,$$(subst /,_,$$<)) -MT $$@ $$<
 
+clean-$(1):
+	rm -rf .obj/$(1)
 
-tests/all: $(patsubst %,.obj/tests/%.o,$(TESTS)) .obj/tests/main.cpp.o .obj/$(BIN).a Makefile
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(patsubst %,.obj/tests/%.o,$(TESTS)) .obj/tests/main.cpp.o .obj/$(BIN).a $(patsubst %,-l%,$(LIBS))
+clean: clean-$(1)
+.PHONY: clean-$(1)
+
+endef
+
+$(foreach arch,$(ARCH),$(eval $(call make_arch,$(arch))))
+
+HOST_ARCH = amd64
+
+tests/all: $(patsubst %,.obj/$(HOST_ARCH)/tests/%.o,$(TESTS)) .obj/$(HOST_ARCH)/tests/main.cpp.o .obj/$(HOST_ARCH)/$(BIN).a Makefile
+	$(CXX_$(HOST_ARCH)) $(CXXFLAGS) $(CXXFLAGS_$(HOST_ARCH)) $(LDFLAGS) $(LDFLAGS_$(TESTARCH)) \
+	    -o $@ $(patsubst %,.obj/$(HOST_ARCH)/tests/%.o,$(TESTS)) \
+	    .obj/$(HOST_ARCH)/tests/main.cpp.o .obj/$(HOST_ARCH)/$(BIN).a $(patsubst %,-l%,$(LIBS))
 
 test: tests/all
 	$<
 
-.PHONY: all test clean
+deploy: .obj/armhf/$(BIN)
+	scp $< cnc:~/bin/cnc
 
--include .obj/*.d
+all: $(BIN)
+
+$(BIN): .obj/$(HOST_ARCH)/$(BIN)
+	ln -sf $< $@
+
+.PHONY: all test clean deploy
+
+-include .obj/deps/*.d
