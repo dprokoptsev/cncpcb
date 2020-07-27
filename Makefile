@@ -53,8 +53,12 @@ tests/all: $(patsubst %,.obj/$(HOST_ARCH)/tests/%.o,$(TESTS)) .obj/$(HOST_ARCH)/
 test: tests/all
 	$<
 
-deploy: .obj/armhf/$(BIN)
-	scp $< cnc:~/bin/cnc
+deploy: .obj/armhf/$(BIN) $(SRCS)
+	tar -czf- $^ | ssh cnc "\
+	    mkdir -p src/cncpcb \
+	    && tar -C src/cncpcb -xzf- \
+	    && mv src/cncpcb/.obj/armhf/$(BIN) ~/bin/cnc"
+
 
 all: $(BIN)
 

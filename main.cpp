@@ -64,11 +64,9 @@ int main(int argc, char** argv)
     try {
         int opt;
         
-        while ((opt = getopt(argc, argv, "dZ")) != -1) {
+        while ((opt = getopt(argc, argv, "d")) != -1) {
             if (opt == 'd') {
                 settings::g_params.dump_wire = true;
-            } else if (opt == 'Z') {
-                settings::g_params.require_z_level_at_tool_change = false;
             } else {
                 usage();
             }
@@ -143,6 +141,11 @@ int main(int argc, char** argv)
             cnc.redefine_position({ cnc.position().x, cnc.position().y, probe_height });
         };
         
+        COMMAND("home x") { cnc.home(vector::axis::x()); };
+        COMMAND("home y") { cnc.home(vector::axis::y()); };
+        COMMAND("home z") { cnc.home(vector::axis::z()); };
+        COMMAND("home") { cnc.home(); };
+        
         COMMAND("move", rel_coord x, rel_coord y, rel_coord z = {}) {
             point pos = maybe_orient().inv()(cnc.position());
             cnc.move(maybe_orient()({
@@ -192,6 +195,13 @@ int main(int argc, char** argv)
             w->set_orientation(orientation::reconstruct(
                 {{0,0,0}, {gx,gy,0}},
                 {{0,0,0}, cnc.position().project_xy()}
+            ));
+        };
+        COMMAND("orient -") {
+            w->set_orientation(orientation(
+                point(0, 0, 0),
+                point(0, 0, 0),
+                vector::axis::x()
             ));
         };
         
@@ -254,13 +264,6 @@ int main(int argc, char** argv)
         };
         COMMAND("set z_adjust", double z) { w->adjust_z(z); };
         COMMAND("set probe_height", double h) { probe_height = h; };
-        COMMAND("set orient", double gx0, double gy0, double cx0, double cy0, double rot) {
-            w->set_orientation({
-                point { gx0, gy0, 0 },
-                point { cx0, cy0, 0 },
-                vector::axis::x().rotate(rot * M_PI / 180)
-            });
-        };
         COMMAND("set move_orient", bool b) { move_orient = b; };
         
         std::vector<double> shape_depths;
@@ -309,7 +312,7 @@ int main(int argc, char** argv)
         impl::command_list::instance() << std::make_unique<gcode_command>(w);
 
         ON_FAILURE {
-            cnc.set_spindle_off();
+            cnc.reset();
         };
         run_cmd_loop();
         cnc.set_spindle_off();

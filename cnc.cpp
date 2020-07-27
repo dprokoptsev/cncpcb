@@ -26,23 +26,31 @@ void cnc_machine::rebind(std::iostream& s)
     touches_ground_ = false;
     idle_ = true;
 
-    for (;;) {
-        std::string line;
-        if (!std::getline(*s_, line))
-            throw grbl_error::protocol_violation();
-        if (line.substr(0, 5) == "Grbl ")
-            break;
+    reset();
+    get_status();
+    
+    if (alarm_) {
+        std::cerr << "\rHoming required" << std::endl;
+    } else {
+        talk("G21");
+        talk("G90");
     }
-
-    talk("?");
-    talk("G21");
-    talk("G90");
-    set_zero();    
 }
     
 void cnc_machine::reset()
 {
-    talk("\x18");
+    s_->clear();
+    *s_ << "\x18" << std::flush;
+    std::string line;
+    while (std::getline(*s_, line) && !starts_with(line, "Grbl ")) {
+        if (settings::g_params.dump_wire)
+            std::cerr << "\r\033[32m... recv: " << line << "\033[0m" << std::endl;
+    }
+    if (interactive::interrupted())
+        throw std::runtime_error("user break");
+    if (!*s_)
+        throw grbl_error::protocol_violation();
+    
     spindle_speed_ = 0;
     spindle_on_ = false;
     get_status();
@@ -52,6 +60,7 @@ void cnc_machine::get_status()
 {
     touches_ground_ = false;
     idle_ = false;
+    alarm_ = false;
     
     std::string status;
     while (status.empty()) {
@@ -69,7 +78,9 @@ void cnc_machine::get_status()
     for (const std::string& field: split<std::string>(status, "|")) {
         if (field.substr(0, 4) == "Idle") {
             idle_ = true;
-        } if (field.substr(0, 5) == "WPos:") {
+        } else if (field == "Alarm") {
+            alarm_ = true;
+        } else if (field.substr(0, 5) == "WPos:") {
             wpos = point(field.substr(5));
         } else if (field.substr(0, 5) == "MPos:") {
             mpos = point(field.substr(5));
@@ -100,6 +111,11 @@ point cnc_machine::position()
     return position_;
 }
 
+point cnc_machine::absolute_position()
+{
+    return position() + wco();
+}
+
 bool cnc_machine::touches_ground()
 {
     get_status();
@@ -108,16 +124,20 @@ bool cnc_machine::touches_ground()
 
 void cnc_machine::wait()
 {
+    bool dump = settings::g_params.dump_wire;
+    settings::g_params.dump_wire = false;
     for (;;) {
         get_status();
         if (idle_)
             break;
         usleep(50000);
     }
+    settings::g_params.dump_wire = dump;
 }
 
 std::string cnc_machine::read_hash(const std::string& name, size_t index)
 {
+    wait();
     for (const std::string& line: talk("$#")) {
         auto fields = split<std::string>(line, ":");
         if (fields.size() > index && fields[0] == name)
@@ -181,67 +201,68 @@ double cnc_machine::probe()
 {
     position_ = point();
     double prev_feed_rate = feed_rate();
-    talk("G38.2 F15 Z-50");
+    talk("G38.2 F15 Z" + lexical_cast<std::string>(-max_travel().z - wco().z + 1));
     wait();
     double ret = (point(read_hash("[PRB", 1)) - wco()).z;
     set_feed_rate(prev_feed_rate);
     return ret;
 }
 
-double cnc_machine::high_precision_probe()
-{
-    auto probe_rate = [this]{
-        static const double SAMPLES = 20;
-        size_t touches = 0;
-        for (size_t i = 0; i != SAMPLES; ++i)
-            touches += (int) touches_ground();
-        return touches * 1.0 / SAMPLES;
-    };
+class cnc_machine::tmpwcs {
+public:
+    tmpwcs(cnc_machine& cnc, int wcs):
+        cnc_(&cnc), wcs_(cnc.wcs_)
+    { cnc_->select_wcs(wcs); }
     
-    set_feed_rate(5);
+    ~tmpwcs() { cnc_->select_wcs(wcs_); }
+    
+    tmpwcs(const tmpwcs&) = delete;
+    tmpwcs& operator = (const tmpwcs&) = delete;
+    
+private:
+    cnc_machine* cnc_;
+    int wcs_;
+};
 
-    while (touches_ground())
-        move_z(position().z + 1);
+void cnc_machine::home(vector axis)
+{
+    std::string axis_name;
+    if ((axis - vector::axis::x()).length() < 1e-5)
+        axis_name = "X";
+    else if ((axis - vector::axis::y()).length() < 1e-5)
+        axis_name = "Y";
+    else if ((axis - vector::axis::z()).length() < 1e-5)
+        axis_name = "Z";
+    else
+        throw std::runtime_error("unknown axis: " + lexical_cast<std::string>(axis));
     
-    double bottom = probe();
-    
-    double top = bottom + 0.1;
-    for (;;) {
-        feed_z(top);
-        wait();
-        if (probe_rate() < 0.1)
-            break;
-        top += 0.5;
-    }
-    
-    double step = (top - bottom) / 10;
-    while (step > 0.0005) {
-        
-        double z = bottom;
-        feed_z(z);
-        wait();
-        while (z < top && probe_rate() > 0.8) {
-            z += step;
-            feed_z(z);
-            wait();
-        }
-        std::swap(z, top);
-        feed_z(z);
-        wait();
-        while (z > bottom && probe_rate() < 0.2) {
-            z -= step;
-            feed_z(z);
-            wait();
-        }
-        
-        step = std::min(step/5, (top - bottom) / 10);
-    }
-    
-    double z = (top+bottom)/2;
-    feed_z(z);
-    return z;
+    talk("$H" + axis_name);
 }
 
+void cnc_machine::home()
+{
+    talk("$X");
+    
+    home(vector::axis::z());
+    move_z(-0.1 - wco().z, move_mode::unsafe);
+    wait();
+    home(vector::axis::x());
+    home(vector::axis::y());
+    
+    talk("G21");
+    talk("G90");
+}
+
+void cnc_machine::select_wcs(int wcs)
+{
+    if (wcs < 0 || wcs > 5)
+        throw std::runtime_error("WCS must be in range 0..5");
+    talk("G" + std::to_string(54 + wcs));
+    
+    wcs_ = wcs;
+    wco_ = vector();
+    position_ = point();
+}
 
 void cnc_machine::set_spindle_speed(double speed)
 {
@@ -293,27 +314,74 @@ std::vector<std::string> cnc_machine::talk(const std::string& cmd)
     std::vector<std::string> resp;
     std::string line;
     while (std::getline(*s_, line)) {
+        if (interactive::interrupted())
+            throw std::runtime_error("user break");
+        
         if (!line.empty() && line[line.size() - 1] == '\r')
             line.pop_back();
 
         if (settings::g_params.dump_wire)
-            std::cerr << "\r\033[32m... recv: " << line << "\033[0m" << std::endl;
+            std::cerr << "\r\033[32m... recv: '" << line << "'\033[0m" << std::endl;
 
         if (line == "ok") {
             return resp;
         } else if (starts_with(line, "error:")) {
             throw grbl_error(lexical_cast<int>(line.substr(6)));
         } else if (starts_with(line, "ALARM:")) {
+            usleep(500000);
             throw grbl_alarm(lexical_cast<int>(line.substr(6)));
         } else if (line.size() >= 2 && line[0] == '<' && line[line.size() - 1] == '>') {
             resp.push_back(line.substr(0, line.size() - 1));
         } else if (line.size() >= 2 && line[0] == '[' && line[line.size() - 1] == ']') {
             resp.push_back(line.substr(0, line.size() - 1));
+        } else if (starts_with(line, "Grbl ")) {
+            // CNC was reset by front-panel killswitch.
+            reset(); // Clear what we may have sent afterwards
+            throw grbl_reset();
+        } else if (starts_with(line, "$") && line.find('=') != std::string::npos) {
+            resp.push_back(line);
         } else {
             continue;
         }
     }
 
+    if (interactive::interrupted())
+        throw std::runtime_error("user break");
+
     throw grbl_error::protocol_violation();
 }
 
+double cnc_machine::setting(int index)
+{
+    if (settings_.empty()) {
+        wait();
+        for (std::string s: talk("$$")) {
+            size_t eq;
+            if (s.empty() || s[0] != '$' || (eq = s.find('=')) == std::string::npos)
+                continue;
+            settings_[lexical_cast<int>(s.substr(1, eq-1))] = lexical_cast<double>(s.substr(eq+1));
+        }
+    }
+    
+    auto i = settings_.find(index);
+    return (i != settings_.end()) ? i->second : 0;
+}
+
+vector cnc_machine::vector_setting(int index)
+{
+    return {
+            setting(index),
+            setting(index + 1),
+            setting(index + 2)
+    };
+}
+
+vector cnc_machine::mask_setting(int index)
+{
+    int mask = (int) setting(index);
+    return {
+            (mask & 1) ? -1.0 : 1.0,
+            (mask & 2) ? -1.0 : 1.0,
+            (mask & 4) ? -1.0 : 1.0
+    };
+}

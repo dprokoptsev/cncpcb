@@ -15,6 +15,11 @@ gcmd gcmd::parse(const ::point& last_point, const std::string& str)
         return ret;
     }
 
+    if (starts_with(str, "$") || starts_with(str, "?")) {
+        ret.cmd_ = str;
+        return ret;
+    }
+
     auto expect = [&str](bool b) {
         if (!b)
             throw std::runtime_error("bad gcommand: " + str);
@@ -67,7 +72,7 @@ gcmd gcmd::parse(const ::point& last_point, const std::string& str)
 
 void gcmd::set_point(const ::point& pt)
 {
-    if (pt_.defined() != pt.defined())
+    if (pt_.any_defined() != pt.any_defined())
         throw std::logic_error("trying to (un)define a point");
     pt_ = pt;
 }
@@ -85,7 +90,7 @@ std::ostream& operator << (std::ostream& s, const gcmd& c)
 
 gcode::gcode(std::istream& s)
 {
-    point last_pt { 0, 0, 0 };
+    point last_pt;
 
     std::string line;
     while (std::getline(s, line)) {
@@ -93,7 +98,7 @@ gcode::gcode(std::istream& s)
             continue;
 
         gcmd c = gcmd::parse(last_pt, line);
-        if (c.point().defined())
+        if (c.point().any_defined())
             last_pt = c.point();
 
         auto ct = classify(c);
@@ -101,6 +106,26 @@ gcode::gcode(std::istream& s)
             cmds_.push_back(c);
         else if (ct == ERROR)
             throw std::runtime_error("unknown command: " + lexical_cast<std::string>(c));
+    }
+    
+    auto pti = cmds_.begin();
+    while (pti != cmds_.end() && !pti->point().defined())
+        ++pti;
+    if (pti != cmds_.end()) {
+        for (auto i = cmds_.begin(); i != pti; ++i) {
+            point pt = i->point();
+            if (!pt.any_defined())
+                continue;
+
+            if (std::isnan(pt.x))
+                pt.x = pti->point().x;
+            if (std::isnan(pt.y))
+                pt.y = pti->point().y;
+            if (std::isnan(pt.z))
+                pt.z = pti->point().z;
+
+            i->set_point(pt);
+        }
     }
 }
 

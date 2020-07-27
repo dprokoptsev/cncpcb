@@ -8,7 +8,7 @@ class grbl_exception: public std::runtime_error {
 public:
     explicit grbl_exception(int code):
         std::runtime_error(find_message(Self::MESSAGES, code)),
-        code_(code) 
+        code_(code)
     {}
     
     int code() const { return code_; }
@@ -43,4 +43,9 @@ public:
 private:
     static const message_map MESSAGES;
     friend class grbl_exception<grbl_alarm>;
+};
+
+class grbl_reset: public std::runtime_error {
+public:
+    grbl_reset(): std::runtime_error("Emergency stop button pushed") {}
 };

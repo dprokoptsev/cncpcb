@@ -101,4 +101,6 @@ private:
     void update();
 };
 
+bool interrupted();
+
 } // namespace interactive

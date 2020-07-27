@@ -40,9 +40,12 @@ public:
     
     int_type overflow(int_type c) override
     {
-        if (pptr() != pbase()) {
-            ssize_t len = check_syscall("write to serial port", &::write, fd_, pbase(), pptr() - pbase());
-            if (len != pptr() - pbase())
+        if (wrbuf_.size() && pptr() != wrbuf_.data()) {
+            ssize_t len = check_syscall(
+                "write to serial port", &::write, fd_,
+                wrbuf_.data(), pptr() - wrbuf_.data()
+            );
+            if (len != pptr() - wrbuf_.data())
                 throw std::runtime_error("cannot write to serial port: EOF");
         }
         

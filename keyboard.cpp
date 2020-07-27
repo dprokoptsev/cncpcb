@@ -73,9 +73,7 @@ key rawtty::getkey()
     }
 }
 
-enum class interrupt_state { normal, interruptable, interrupted };
-static volatile interrupt_state g_interrupt_state = interrupt_state::normal;
-
+static volatile sig_atomic_t g_interrupted = 0;
 
 namespace interactive {
 
@@ -103,28 +101,26 @@ public:
     
 private:
     static void on_winch(int) { g_have_winsize = false; }
-
-    static void on_int(int)
-    {
-        if (g_interrupt_state == interrupt_state::interruptable) {
-            g_interrupt_state = interrupt_state::interrupted;
-        } else {
-            signal(SIGINT, SIG_DFL);
-            raise(SIGINT);
-        }
-    }
+    static void on_int(int) { g_interrupted = 1; }
     
     void install(int sig, void (*handler)(int))
     {
         struct sigaction s;
         memset(&s, 0, sizeof(s));
         s.sa_handler = handler;
-        s.sa_flags = SA_RESTART;
+        s.sa_flags = 0;
         sigaction(sig, &s, 0);
     }
 };
 
 static sighandler_ g_sighandler_;
+
+bool interrupted()
+{
+    auto v = g_interrupted;
+    g_interrupted = 0;
+    return !!v;
+}
 
 void clear_line()
 {
@@ -163,13 +159,8 @@ public:
             cnc_->move_z(cnc_->position().z + g_feed_z, mode_);
         } else if (k == key::page_down) {
             cnc_->move_z(cnc_->position().z - g_feed_z, mode_);
-        } else if (k == key::p || k == key::shift_p) {
-            
-            if (k == key::shift_p)
-                cnc_->high_precision_probe();
-            else
-                cnc_->probe();
-
+        } else if (k == key::p) {
+            cnc_->move_z(cnc_->probe(), cnc_machine::move_mode::unsafe);
         } else if (k == key::multiplies) {
             g_feed_z *= FEED_RATE;
         } else if (k == key::divides) {
@@ -384,8 +375,7 @@ void change_tool(cnc_machine& cnc, const std::string& prompt)
             continue;
         } else if (!cnc.is_spindle_on() && k == key::enter) {
             if (
-                !settings::g_params.require_z_level_at_tool_change
-                || cnc.position().distance_to({0, 0, cnc.position().z}) < 2
+                cnc.position().distance_to({0, 0, cnc.position().z}) < 2
             ) {
                 clear_line();
                 break;
@@ -397,12 +387,7 @@ void change_tool(cnc_machine& cnc, const std::string& prompt)
     }
     
     point p = cnc.position();
-    if (settings::g_params.require_z_level_at_tool_change) {
-        cnc.move_z(cnc.position().z + 1);
-        p.z = cnc.probe();
-    } else {
-        p.z = 0;
-    }
+    p.z = 0;
     cnc.redefine_position(p);
     cnc.move_z(1);
 }
@@ -410,13 +395,11 @@ void change_tool(cnc_machine& cnc, const std::string& prompt)
 progress_bar::progress_bar(const std::string& prompt, size_t max):
     prompt_(prompt), max_(max), cur_(0), started_at_(time(0)), last_updated_at_(0)
 {
-    g_interrupt_state = interrupt_state::interruptable;
     update();
 }
     
 progress_bar::~progress_bar()
 {
-    g_interrupt_state = interrupt_state::normal;
     clear_line();
 }
 
@@ -424,11 +407,6 @@ progress_bar::~progress_bar()
 void progress_bar::update()
 {
     static const int UPDATE_INTERVAL = 2;
-
-    if (g_interrupt_state == interrupt_state::interrupted) {
-        clear_line();
-        throw std::runtime_error("user break");
-    }
 
     if (settings::g_params.dump_wire)
         return;

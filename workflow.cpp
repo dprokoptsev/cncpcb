@@ -128,6 +128,15 @@ void workflow::set_orientation(double angle_hint /* = 0 */)
     orient_ = std::move(orient);
 }
 
+void workflow::set_orientation(::orientation o)
+{
+    if (mirror_ && !border_)
+        throw error("load border before setting up orientation");
+    orient_ = o;
+    if (mirror_)
+        orient_.set_hmirror(border_->bounding_box().center().x);
+}
+
 
 void workflow::drill_reference_points()
 {

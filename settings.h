@@ -26,7 +26,6 @@ static const settings MILL = {
 
 struct global_params {
     bool dump_wire = false;
-    bool require_z_level_at_tool_change = true;
 };
 
 extern global_params g_params;

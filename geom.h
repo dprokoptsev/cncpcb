@@ -37,6 +37,7 @@ public:
     }
     
     bool defined() const { return !std::isnan(x) && !std::isnan(y) && !std::isnan(z); }
+    bool any_defined() const { return !std::isnan(x) || !std::isnan(y) || !std::isnan(z); }
     
     friend std::istream& operator >> (std::istream& s, pt_base& p)
     {
