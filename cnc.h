@@ -6,14 +6,23 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <optional>
 
 class gcmd;
 
 class cnc_machine {
     static constexpr const double MIN_SAFE_HEIGHT = 0.6;
-    
-    // We use G59 to keep track of CNC position relative to limit switches
-    static constexpr const int WCS_ABSOLUTE = 5; 
+
+    struct status_t {
+        int wcs;
+        point position;
+        double feed_rate;
+        double spindle_speed;
+        bool spindle_on;
+        bool touches_ground;
+        bool idle;
+        bool alarm;
+    };
 
 public:
     enum class move_mode { safe, unsafe };
@@ -25,8 +34,8 @@ public:
     
     void wait();
     
-    point position();
-    point absolute_position();
+    point position() { return status().position; }
+    point absolute_position() { return position() + wco(); }
     void redefine_position(point newpos);
     void set_zero() { redefine_position({ 0, 0, 0 }); }
     
@@ -38,17 +47,17 @@ public:
     void move_z(double z, move_mode m = move_mode::safe);
     double probe();
     
-    bool touches_ground();
+    bool touches_ground() { return status().touches_ground; }
     
     void feed(point p);
     void feed_z(double z);
 
-    double spindle_speed() const { return spindle_speed_; }
+    double spindle_speed() { return status().spindle_speed; }
     void set_spindle_speed(double speed);
     void set_spindle_on();
     void set_spindle_off();
-    bool is_spindle_on();
-    double feed_rate() const { return feed_rate_; }
+    bool is_spindle_on() { return status().spindle_on; }
+    double feed_rate() { return status().feed_rate; }
     void set_feed_rate(double feed);
     void dwell(double seconds);
     
@@ -60,8 +69,9 @@ public:
     double homing_pulloff() { return setting(27); }
     
 private /*methods*/:
-    void get_status();
+    status_t& status();
     vector wco();
+    int wcs() { return status().wcs; }
     void select_wcs(int wcs);
     
     class tmpwcs;
@@ -76,18 +86,8 @@ private /*methods*/:
         
 private /*fields*/:
     std::iostream* s_;
-    
-    int wcs_ = 0;
+    std::optional<status_t> status_;
     vector wco_;
-    point position_;
-    
-    double feed_rate_;
-    double spindle_speed_;
-    bool spindle_on_;
-    bool touches_ground_;
-    bool idle_ = true;
-    bool alarm_ = false;
-    
     std::map<int, double> settings_;
 };
 

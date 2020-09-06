@@ -112,6 +112,8 @@ int main(int argc, char** argv)
         COMMAND("pos") { std::cout << cnc.position() << std::endl; };
         COMMAND("status") {
             std::cout << "position: " << cnc.position()
+                      << "; spindle speed: " << cnc.spindle_speed()
+                      << "; feed rate: " << cnc.feed_rate()
                       << "; spindle: " << (cnc.is_spindle_on() ? "ON" : "off")
                       << "; probe: " << (cnc.touches_ground() ? "YES": "no")
                       << std::endl;
