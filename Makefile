@@ -21,7 +21,9 @@ define make_arch
 
 OBJS_$(1) = $$(patsubst %.cpp,.obj/$(1)/%.cpp.o,$(filter-out main.cpp,$(SRCS)))
 
-all: .obj/$(1)/$(BIN)
+all: all@$(1)
+
+all@$(1): .obj/$(1)/$(BIN)
 
 .obj/$(1)/$(BIN): .obj/$(1)/$(BIN).a .obj/$(1)/main.cpp.o Makefile
 	$$(CXX_$(1)) $(CXXFLAGS) $$(CXXFLAGS_$(1)) $(LDFLAGS) $$(LDFLAGS_$(1)) -o $$@ \
