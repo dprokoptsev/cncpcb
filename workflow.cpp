@@ -11,7 +11,7 @@
 
 static std::vector<point> make_reference_points(const gcode& border)
 {
-    static const double MARGIN = 1.5;
+    static const double MARGIN = 0;
     static const double SHIFT = 10;
     auto bbox = border.bounding_box();
     
@@ -291,6 +291,14 @@ std::vector<circular_area> workflow::drills() const
         ret.push_back({ pt, 0.25 });
 
     return ret;
+}
+
+void workflow::zero_height_map()
+{
+    auto h = std::make_unique<height_map>(border_->bounding_box(), std::vector<circular_area>());
+    for (point& pt: *h)
+        pt.z = 0;
+    height_map_ = std::move(h);
 }
 
 void workflow::scan_height_map()

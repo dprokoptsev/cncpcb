@@ -247,6 +247,7 @@ int main(int argc, char** argv)
         COMMAND("hmap scan") { w->scan_height_map(); };
         COMMAND("hmap load", const std::string& filename) { w->load_height_map(filename); };
         COMMAND("hmap save", const std::string& filename) { w->save_height_map(filename); };
+        COMMAND("hmap zero") { w->zero_height_map(); };
         
         COMMAND("spindle on") { cnc.set_spindle_on(); };
         COMMAND("spindle off") { cnc.set_spindle_off(); };

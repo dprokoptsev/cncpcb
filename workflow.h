@@ -34,6 +34,7 @@ public:
     void scan_height_map();
     void save_height_map(const std::string& filename) const;
     void load_height_map(const std::string& filename);
+    void zero_height_map();
     
     void adjust_z(double adj) { z_adjustment_ = adj; }
     
