@@ -242,4 +242,5 @@ private:
     double hmirror_ = NAN;
 };
 
+typedef std::vector<point> polyline;
 

@@ -266,26 +266,24 @@ int main(int argc, char** argv)
         COMMAND("set z_adjust", double z) { w->adjust_z(z); };
         COMMAND("set probe_height", double h) { probe_height = h; };
         COMMAND("set move_orient", bool b) { move_orient = b; };
-        
-        std::vector<double> shape_depths;
+       
+        depth_list shape_depths;
         
         double tool_width = 5;
-        auto mill_shape = [&](gcode gc) {
-            gc.break_long_legs();
+        auto mill_shape = [&](polyline shape) {
+            polyline layered = shape_depths(std::move(shape));
             auto pos = cnc.position();
-            gc.xform_by(orient());
-            
-            std::vector<gcmd> layered;
-            for (double depth: shape_depths) {
-                gcode layer = gc;
-                layer.xform_by([d = cnc.position().to_vector().project_xy() - vector::axis::z(depth)](point pt) { return pt + d; });
-                layered.insert(layered.end(), layer.begin(), layer.end());
-            }
-            gc = gcode(layered.begin(), layered.end());
+
+            std::vector<gcmd> gcmds;
+            for (const point& pt: layered)
+                gcmds.push_back(gcmd("G1", pt));
+            gcode gc(gcmds.begin(), gcmds.end());
+            gc.break_long_legs();
+            gc.xform_by([o = orient(), d = cnc.position().to_vector().project_xy()](point pt){ return o(pt) + d; });
             
             cnc.move_xy(gc.frontpt());
             cnc.set_spindle_on();
-            cnc.dwell(1);
+            cnc.dwell(2);
             gc.send_to(cnc);
             
             cnc.set_spindle_off();
@@ -293,19 +291,20 @@ int main(int argc, char** argv)
                 cnc.move_z(1);
             cnc.move(pos);
         };
-        COMMAND("set shape_depth", double d) { shape_depths = {d}; };
+        COMMAND("set shape_depth", double d) { shape_depths = depth_list(d); };
         COMMAND("set shape_depth", double d1, double d2, double step) {
-            shape_depths.clear();
-            for (double d = d1; d < d2 - step*1.1; d += step)
-                shape_depths.push_back(d);
-            shape_depths.push_back(d2);
+            shape_depths = depth_list(d1, d2, step);
+            std::cout << "Cut depths: ";
+            for (double d: shape_depths.depths())
+                std::cout << std::fixed << std::setprecision(2) << d << "; ";
         };
         
         COMMAND("set tool_width", double w) { tool_width = w; };
+
+        COMMAND("shape segment", double w, double h) { mill_shape(shapes::segment({ w, h, 0 })); };
         COMMAND("shape circle", double r) { mill_shape(shapes::circle(r)); };
         COMMAND("shape fillcircle", double r) { mill_shape(shapes::filled_circle(0, r, tool_width)); };
         COMMAND("shape fillcircle", double r1, double r2) { mill_shape(shapes::filled_circle(r1, r2, tool_width)); };
-
         COMMAND("shape box", double w, double h) { mill_shape(shapes::box(w, h)); };
         COMMAND("shape box", double w, double h, double r) { mill_shape(shapes::box(w, h, r)); };
         COMMAND("shape fillbox", double w, double h) { mill_shape(shapes::filled_box(w, h, tool_width)); };
