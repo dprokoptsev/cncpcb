@@ -58,6 +58,8 @@ void command_list::run()
 {
     std::string line;
     while (readline("> ", line)) {
+        while (!line.empty() && isspace(line.back()))
+            line.pop_back();
         auto args = split<std::string>(line, " ");
         try {
             call(args);
