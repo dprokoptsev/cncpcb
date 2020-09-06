@@ -58,16 +58,30 @@ public:
                  << std::setprecision(3) << p.y << ','
                  << std::setprecision(3) << p.z << ')';
     }
-    
-    std::string grbl() const
+
+protected:
+    std::string grbl(char cx, char cy, char cz) const
     {
         std::ostringstream s;
-        s << std::fixed
-          << "X" << std::setprecision(3) << x
-          << " Y" << std::setprecision(3) << y
-          << " Z" << std::setprecision(3) << z;
+        s << std::fixed;
+        bool first = true;
+        auto putspace = [&first](std::ostream& s) -> std::ostream& {
+            if (first)
+                first = false;
+            else
+                s << ' ';
+            return s;
+        };
+        if (!std::isnan(x))
+            putspace(s) << cx << std::setprecision(3) << x;
+        if (!std::isnan(y))
+            putspace(s) << cy << std::setprecision(3) << y;
+        if (!std::isnan(z))
+            putspace(s) << cz << std::setprecision(3) << z;
         return s.str();
+
     }
+    
 };
 
 
@@ -108,12 +122,16 @@ public:
     vector project_xy() const { return { x, y, 0 }; }
     vector mirror_x() const { return { -x, y, z }; }
     vector mirror_y() const { return { x, -y, z }; }
+    
+    std::string grbl() const { return pt_base::grbl('I', 'J', 'K'); }
 };
 
 
 class point: public pt_base {
 public:
     using pt_base::pt_base;
+
+    static point zero() { return { 0, 0, 0 }; }
     
     point operator + (const vector& v) const { return { x + v.x, y + v.y, z + v.z }; }
     point operator - (const vector& v) const { return { x - v.x, y - v.y, z - v.z }; }
@@ -132,6 +150,8 @@ public:
     static point from_vector(const vector& v) { return point(0, 0, 0) + v; }
 
     point project_xy() const { return { x, y, 0 }; }
+    
+    std::string grbl() const { return pt_base::grbl('X', 'Y', 'Z'); }
 };
 
 
@@ -203,7 +223,7 @@ public:
             pt.x = 2*hmirror_ - pt.x;
         return (pt - gcode_zero_).rotate(rotation_) + cnc_zero_;
     }
-    
+
     orientation inv() const
     {
         return orientation(cnc_zero_, gcode_zero_, rotation_.mirror_y());

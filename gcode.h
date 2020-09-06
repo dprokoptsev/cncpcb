@@ -26,7 +26,10 @@ public:
     const std::map<char, double>& tail() const { return tail_; }
     
     const ::point& point() const { return pt_; }
-    void set_point(const ::point& pt);    
+    void set_point(const ::point& pt);
+
+    const ::vector& delta() const { return delta_; }
+    void set_delta(const ::vector& v);
     
     friend std::ostream& operator << (std::ostream& s, const gcmd& c);
     
@@ -34,8 +37,11 @@ public:
     gcmd xform_by(const F& xf) const
     {
         gcmd ret(*this);
-        if (pt_.defined())
+        if (pt_.any_defined())
             ret.pt_ = xf(pt_);
+        if (delta_.any_defined()) {
+            ret.delta_ = xf(delta_ + point::zero()) - xf(point::zero());
+        }
         return ret;
     }
     
@@ -45,6 +51,7 @@ private:
     std::string cmd_;
     std::map<char, double> tail_;
     ::point pt_;
+    ::vector delta_;
     int arg_ = 0;
 };
 

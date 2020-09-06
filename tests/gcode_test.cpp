@@ -16,11 +16,12 @@ G01 Z-1.7 F4
 G01 Z1
 G00 Y30
 G01 Z-1.7
+G02 X30 Y40 I0 J10
 M5
 )");
     gcode g(gfile);
     
-    CHECK(g.size() == 11);
+    CHECK(g.size() == 12);
     CHECK(!g[0].point().defined());
     CHECK(g[1].point() == approx(point(10, 10, 1)));
     CHECK(g[2].point() == approx(point(20, 10, 1)));
@@ -29,6 +30,14 @@ M5
     CHECK(g[6].point() == approx(point(20, 10, -1.7)));
     CHECK(g[7].point() == approx(point(20, 10, 1)));
     CHECK(g[8].point() == approx(point(20, 30, 1)));
+    CHECK(g[10].point() == approx(point(30, 40, -1.7)));
+    CHECK(g[10].delta() == approx(vector(0, 10, NAN)));
+}
+
+TEST_CASE("gcode_serialize", "[gcode]")
+{
+    gcmd g = gcmd::parse(point(), "G03 X10 Y20 I30 J40");
+    CHECK(lexical_cast<std::string>(g) == "G03 X10.000 Y20.000 I30.000 J40.000");
 }
 
 TEST_CASE("gcode_orient", "[gcode][xform]")
@@ -37,8 +46,13 @@ TEST_CASE("gcode_orient", "[gcode][xform]")
     orientation o({5,0,0}, {0,0,0}, vector::axis::x().rotate(deg(30)));
     
     gcmd gx = g.xform_by(o);
-    CHECK(gx.point() == approx(point(5*sqrt(3)/2, 2.5, 0)));
+    CHECK(gx.point() == approx(point(2.5*sqrt(3), 2.5, 0)));
     CHECK(lexical_cast<std::string>(gx) == "G00 X4.330 Y2.500 Z0.000 F1.000");
+    
+    gcmd g2 = gcmd::parse(g.point(), "G03 X15 Y5 I0 J5");
+    gcmd gx2 = g2.xform_by(o);
+    CHECK(gx2.point() == approx(point(2.5*(2*sqrt(3)-1), 2.5*(sqrt(3)+2), 0)));
+    CHECK(gx2.delta() == approx(vector(-2.5, 2.5*sqrt(3), NAN)));
 }
 
 TEST_CASE("gcode_long_legs", "[gcode]")

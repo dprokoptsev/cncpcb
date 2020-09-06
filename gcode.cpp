@@ -59,6 +59,12 @@ gcmd gcmd::parse(const ::point& last_point, const std::string& str)
         } else if (letter == 'Z') {
             pt.z = lexical_cast<double>(arg);
             has_pt = true;
+        } else if (letter == 'I') {
+            ret.delta_.x = lexical_cast<double>(arg);
+        } else if (letter == 'J') {
+            ret.delta_.y = lexical_cast<double>(arg);
+        } else if (letter == 'K') {
+            ret.delta_.z = lexical_cast<double>(arg);
         } else {
             ret.tail_.insert(std::make_pair(letter, lexical_cast<double>(arg)));
         }
@@ -80,8 +86,10 @@ void gcmd::set_point(const ::point& pt)
 std::ostream& operator << (std::ostream& s, const gcmd& c)
 {
     s << c.cmd_;
-    if (c.pt_.defined())
+    if (c.pt_.any_defined())
         s << " " << c.pt_.grbl();
+    if (c.delta_.any_defined())
+        s << " " << c.delta_.grbl();
     for (const auto& kv: c.tail_)
         s << " " << kv.first << std::fixed << std::setprecision(3) << kv.second;
     return s;
@@ -182,7 +190,8 @@ gcode::gcmd_classification gcode::classify(const gcmd& c)
             return USE;
     } else if (c.letter() == 'G') {
         if (
-            c.arg() == 0 || c.arg() == 1 || c.arg() == 4 || c.arg() == 21
+            c.arg() == 0 || c.arg() == 1 || c.arg() == 2 || c.arg() == 3 || c.arg() == 4 || c.arg() == 21
+            || c.arg() == 17
             || c.arg() == 90 || c.arg() == 94
         )
             return USE;    
